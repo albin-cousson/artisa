@@ -13,6 +13,9 @@ import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { CommuneProperties } from "@/lib/types";
 import { ArtisanPanel } from "@/components/ArtisanPanel";
+import { UnlockedArtisansMenu } from "@/components/UnlockedArtisansMenu";
+import { LoginPromptModal } from "@/components/LoginPromptModal";
+import { useAuth } from "@/lib/supabase/auth-context";
 
 const clusterLayer: LayerProps = {
   id: "clusters",
@@ -65,31 +68,41 @@ const unclusteredPointLayer: LayerProps = {
 
 export function CommunesMap() {
   const mapRef = useRef<MapRef>(null);
+  const { user } = useAuth();
   const [selectedCommune, setSelectedCommune] = useState<CommuneProperties | null>(null);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
-  const onClick = useCallback((event: MapLayerMouseEvent) => {
-    const feature = event.features?.[0];
-    if (!feature) return;
+  const onClick = useCallback(
+    (event: MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (!feature) return;
 
-    const map = mapRef.current?.getMap();
-    if (!map) return;
+      const map = mapRef.current?.getMap();
+      if (!map) return;
 
-    if (feature.properties?.cluster) {
-      const clusterId = feature.properties.cluster_id as number;
-      const source = map.getSource("communes") as GeoJSONSource;
-      source.getClusterExpansionZoom(clusterId).then((zoom) => {
-        map.easeTo({
-          center: (feature.geometry as GeoJSON.Point).coordinates as [number, number],
-          zoom,
-          duration: 500,
+      if (feature.properties?.cluster) {
+        const clusterId = feature.properties.cluster_id as number;
+        const source = map.getSource("communes") as GeoJSONSource;
+        source.getClusterExpansionZoom(clusterId).then((zoom) => {
+          map.easeTo({
+            center: (feature.geometry as GeoJSON.Point).coordinates as [number, number],
+            zoom,
+            duration: 500,
+          });
         });
-      });
-      return;
-    }
+        return;
+      }
 
-    const [lng, lat] = (feature.geometry as GeoJSON.Point).coordinates;
-    setSelectedCommune({ ...(feature.properties as CommuneProperties), lat, lng });
-  }, []);
+      if (!user) {
+        setShowLoginPrompt(true);
+        return;
+      }
+
+      const [lng, lat] = (feature.geometry as GeoJSON.Point).coordinates;
+      setSelectedCommune({ ...(feature.properties as CommuneProperties), lat, lng });
+    },
+    [user]
+  );
 
   const onMouseEnter = useCallback(() => {
     const map = mapRef.current?.getMap();
@@ -127,9 +140,19 @@ export function CommunesMap() {
         </Source>
       </Map>
 
-      {selectedCommune && (
-        <ArtisanPanel commune={selectedCommune} onClose={() => setSelectedCommune(null)} />
+      {user && (
+        <UnlockedArtisansMenu onOpenCommune={(commune) => setSelectedCommune(commune)} />
       )}
+
+      {selectedCommune && (
+        <ArtisanPanel
+          key={selectedCommune.code}
+          commune={selectedCommune}
+          onClose={() => setSelectedCommune(null)}
+        />
+      )}
+
+      {showLoginPrompt && <LoginPromptModal onClose={() => setShowLoginPrompt(false)} />}
     </div>
   );
 }

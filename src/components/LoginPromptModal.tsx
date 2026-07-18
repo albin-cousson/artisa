@@ -16,10 +16,10 @@ export function LoginPromptModal({ onClose }: LoginPromptModalProps) {
         className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold">Connecte-toi pour laisser un avis</h2>
+        <h2 className="text-lg font-semibold">Connecte-toi pour voir les artisans</h2>
         <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-          Les avis sont réservés aux membres de la communauté pour garder des évaluations
-          fiables. Connecte-toi ou crée un compte gratuitement.
+          La recherche d&apos;artisans est réservée aux membres. Crée un compte gratuitement (il
+          te suffit d&apos;indiquer ta propre clé Google Places API) ou connecte-toi.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button

@@ -1,25 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAuth } from "@/lib/supabase/auth-context";
-import type { ArtisanWithRating, CommuneProperties } from "@/lib/types";
-import { SmileyBadge } from "@/components/SmileyBadge";
-import { ReviewForm } from "@/components/ReviewForm";
-import { LoginPromptModal } from "@/components/LoginPromptModal";
+import { useCallback, useEffect, useState } from "react";
+import type { Artisan, CommuneProperties } from "@/lib/types";
+import { recordViewedCommune } from "@/actions/communes";
+import { getCalledArtisanIds, setArtisanCalled } from "@/actions/calls";
 
 interface ArtisanPanelProps {
   commune: CommuneProperties;
   onClose: () => void;
 }
 
+// Suppose que l'utilisateur est connecté : CommunesMap n'ouvre ce panneau
+// qu'après vérification de la session (sinon LoginPromptModal).
 export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
-  const { user } = useAuth();
-  const [artisans, setArtisans] = useState<ArtisanWithRating[] | null>(null);
+  const [artisans, setArtisans] = useState<Artisan[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reviewTargetId, setReviewTargetId] = useState<string | null>(null);
-  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [calledIds, setCalledIds] = useState<Set<string>>(new Set());
+  const [togglingCalledId, setTogglingCalledId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadArtisans = useCallback(() => {
     setArtisans(null);
     setError(null);
 
@@ -41,12 +40,31 @@ export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
       .catch(() => setError("Impossible de charger les artisans."));
   }, [commune.code, commune.lat, commune.lng]);
 
-  function handleLeaveReviewClick(artisanId: string) {
-    if (!user) {
-      setShowLoginPrompt(true);
-      return;
-    }
-    setReviewTargetId(artisanId);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch initial : les setState passent le state en "chargement" avant la réponse réseau
+    loadArtisans();
+  }, [loadArtisans]);
+
+  useEffect(() => {
+    if (!artisans) return;
+    recordViewedCommune(commune);
+    if (artisans.length === 0) return;
+    const ids = artisans.map((artisan) => artisan.id);
+    getCalledArtisanIds(ids).then((calledIds) => setCalledIds(new Set(calledIds)));
+  }, [artisans, commune]);
+
+  function handleToggleCalled(artisanId: string, called: boolean) {
+    setTogglingCalledId(artisanId);
+    setArtisanCalled(artisanId, called).then((result) => {
+      setTogglingCalledId(null);
+      if (result.error) return;
+      setCalledIds((prev) => {
+        const next = new Set(prev);
+        if (called) next.add(artisanId);
+        else next.delete(artisanId);
+        return next;
+      });
+    });
   }
 
   return (
@@ -89,10 +107,7 @@ export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
             key={artisan.id}
             className="rounded-lg border border-black/10 p-3 dark:border-white/10"
           >
-            <div className="flex items-start justify-between gap-2">
-              <span className="font-medium">{artisan.display_name}</span>
-              <SmileyBadge rating={artisan.rating} />
-            </div>
+            <span className="font-medium">{artisan.display_name}</span>
 
             <div className="mt-1 flex flex-col gap-0.5 text-sm text-black/70 dark:text-white/70">
               {artisan.national_phone_number && (
@@ -112,23 +127,18 @@ export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
               )}
             </div>
 
-            {reviewTargetId === artisan.id ? (
-              <ReviewForm artisanId={artisan.id} onDone={() => setReviewTargetId(null)} />
-            ) : (
-              <button
-                onClick={() => handleLeaveReviewClick(artisan.id)}
-                className="mt-2 rounded-md border border-black/15 px-3 py-1.5 text-xs font-medium hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
-              >
-                Laisser un avis
-              </button>
-            )}
+            <label className="mt-2 flex items-center gap-1.5 text-xs text-black/70 dark:text-white/70">
+              <input
+                type="checkbox"
+                checked={calledIds.has(artisan.id)}
+                disabled={togglingCalledId === artisan.id}
+                onChange={(e) => handleToggleCalled(artisan.id, e.target.checked)}
+              />
+              Déjà appelé
+            </label>
           </div>
         ))}
       </div>
-
-      {showLoginPrompt && (
-        <LoginPromptModal onClose={() => setShowLoginPrompt(false)} />
-      )}
     </aside>
   );
 }
