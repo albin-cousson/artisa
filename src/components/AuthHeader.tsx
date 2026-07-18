@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
+import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
+import { GithubStarButton } from "@/components/GithubStarButton";
+
+const HEADER_BUTTON_CLASS =
+  "rounded-md border border-black/15 px-3 py-1.5 font-medium transition hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10";
 
 export function AuthHeader() {
   const { user, loading } = useAuth();
@@ -24,10 +29,13 @@ export function AuthHeader() {
             <span className="hidden text-black/60 sm:inline dark:text-white/60">
               {user.email}
             </span>
-            <button
-              onClick={handleSignOut}
-              className="rounded-md border border-black/15 px-3 py-1.5 font-medium transition hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
-            >
+            <ApiKeyHelpButton
+              includeSetup={false}
+              label="Aide & quotas"
+              buttonClassName={HEADER_BUTTON_CLASS}
+            />
+            <GithubStarButton buttonClassName={HEADER_BUTTON_CLASS} className="text-sm" />
+            <button onClick={handleSignOut} className={HEADER_BUTTON_CLASS}>
               Se déconnecter
             </button>
           </>
