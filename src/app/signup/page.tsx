@@ -2,15 +2,16 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [googleApiKey, setGoogleApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
@@ -42,31 +43,26 @@ export default function SignupPage() {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { google_places_api_key: googleApiKey } },
+      options: {
+        data: { google_places_api_key: googleApiKey },
+        // Utilise l'origine réelle (localhost en dev, domaine de prod en prod)
+        // au lieu du "Site URL" fixe du dashboard Supabase, pour que le lien du
+        // mail de confirmation pointe toujours vers le bon environnement.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
 
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setError(error.message);
       return;
     }
 
-    setDone(true);
-  }
-
-  if (done) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 px-4 text-center">
-        <h1 className="text-2xl font-semibold">Vérifie ta boîte mail</h1>
-        <p className="text-black/60 dark:text-white/60">
-          Un email de confirmation vient de t&apos;être envoyé. Clique sur le lien pour activer
-          ton compte, puis connecte-toi.
-        </p>
-        <Link href="/login" className="font-medium underline">
-          Retour à la connexion
-        </Link>
-      </main>
-    );
+    // La confirmation d'email est désactivée : signUp ouvre directement une
+    // session. On redirige vers le compte avec un flag pour afficher la pop-up
+    // de bienvenue. (On ne remet pas setLoading(false) : la navigation suit.)
+    router.push("/?welcome=1");
+    router.refresh();
   }
 
   return (
