@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { listViewedCommunes } from "@/actions/communes";
-import { getCalledArtisanIds } from "@/actions/calls";
+import { isMobilePhone } from "@/lib/phone";
 
 // Les artisans d'une commune dépliée : chargés à la demande depuis /api/places
 // (déjà cachés côté serveur, donc pas de nouvel appel Google) — tous ceux sans
@@ -12,14 +12,25 @@ type CommuneArtisans = Artisan[] | "loading" | "error";
 
 interface UnlockedArtisansMenuProps {
   onOpenCommune: (commune: CommuneProperties) => void;
+  /** État "déjà appelé" partagé avec ArtisanPanel (voir useCalledArtisans). */
+  calledIds: Set<string>;
+  togglingId: string | null;
+  onMarkCalledIds: (artisanIds: string[]) => void;
+  onToggleCalled: (artisanId: string, called: boolean) => void;
 }
 
-export function UnlockedArtisansMenu({ onOpenCommune }: UnlockedArtisansMenuProps) {
+export function UnlockedArtisansMenu({
+  onOpenCommune,
+  calledIds,
+  togglingId,
+  onMarkCalledIds,
+  onToggleCalled,
+}: UnlockedArtisansMenuProps) {
   const [open, setOpen] = useState(false);
   const [communes, setCommunes] = useState<CommuneProperties[]>([]);
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [artisansByCommune, setArtisansByCommune] = useState<Record<string, CommuneArtisans>>({});
-  const [calledIds, setCalledIds] = useState<Set<string>>(new Set());
+  const [mobileOnly, setMobileOnly] = useState(false);
 
   function toggleMenu() {
     // La liste est relue à chaque ouverture : de nouvelles communes ont pu
@@ -55,9 +66,7 @@ export function UnlockedArtisansMenu({ onOpenCommune }: UnlockedArtisansMenuProp
         }
         const artisans = data.artisans as Artisan[];
         setArtisansByCommune((prev) => ({ ...prev, [commune.code]: artisans }));
-        getCalledArtisanIds(artisans.map((artisan) => artisan.id)).then((ids) =>
-          setCalledIds((prev) => new Set([...prev, ...ids]))
-        );
+        onMarkCalledIds(artisans.map((artisan) => artisan.id));
       })
       .catch(() => {
         setArtisansByCommune((prev) => ({ ...prev, [commune.code]: "error" }));
@@ -65,22 +74,34 @@ export function UnlockedArtisansMenu({ onOpenCommune }: UnlockedArtisansMenuProp
   }
 
   return (
-    <div className="absolute left-4 top-4 z-10 w-72 max-w-[calc(100%-2rem)]">
+    <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-10 w-72 max-w-[calc(100%-2rem)]">
       <button
         onClick={toggleMenu}
-        className="flex w-full items-center justify-between rounded-lg border border-black/10 bg-white/95 px-3 py-2 text-sm font-medium shadow-md backdrop-blur hover:bg-white dark:border-white/10 dark:bg-neutral-900/95 dark:hover:bg-neutral-900"
+        className="focus-ring flex w-full items-center justify-between rounded-lg border border-border bg-bg/95 px-3 py-2 text-sm font-medium text-ink shadow-[var(--shadow-popover)] backdrop-blur hover:bg-bg coarse:min-h-11"
       >
         Mes artisans{open && communes.length > 0 ? ` (${communes.length})` : ""}
-        <span className="text-black/50 dark:text-white/50">{open ? "▲" : "▼"}</span>
+        <span className="text-muted">{open ? "▲" : "▼"}</span>
       </button>
 
       {open && (
-        <div className="mt-2 max-h-[60vh] overflow-y-auto rounded-lg border border-black/10 bg-white/95 shadow-md backdrop-blur dark:border-white/10 dark:bg-neutral-900/95">
+        <div className="mt-2 max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-bg/95 text-ink shadow-[var(--shadow-popover)] backdrop-blur">
           {communes.length === 0 && (
-            <p className="p-3 text-sm text-black/50 dark:text-white/50">
+            <p className="p-3 text-sm text-muted">
               Aucune commune consultée pour l&apos;instant. Clique sur un point de la carte pour
               commencer.
             </p>
+          )}
+
+          {communes.length > 0 && (
+            <label className="sticky top-0 flex items-center gap-1.5 border-b border-border bg-bg/95 px-3 py-2 text-xs text-muted backdrop-blur">
+              <input
+                type="checkbox"
+                className="accent-[var(--primary-strong)]"
+                checked={mobileOnly}
+                onChange={(e) => setMobileOnly(e.target.checked)}
+              />
+              Mobiles uniquement (06/07)
+            </label>
           )}
 
           {communes.map((commune) => {
@@ -88,23 +109,18 @@ export function UnlockedArtisansMenu({ onOpenCommune }: UnlockedArtisansMenuProp
             const expanded = expandedCode === commune.code;
 
             return (
-              <div
-                key={commune.code}
-                className="border-b border-black/5 last:border-b-0 dark:border-white/5"
-              >
+              <div key={commune.code} className="border-b border-border last:border-b-0">
                 <div className="flex items-center justify-between gap-2 px-3 py-2">
                   <button
                     onClick={() => toggleCommune(commune)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium hover:underline"
+                    className="focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm font-medium hover:underline coarse:min-h-11"
                   >
-                    <span className="text-xs text-black/40 dark:text-white/40">
-                      {expanded ? "▾" : "▸"}
-                    </span>
+                    <span className="text-xs text-muted">{expanded ? "▾" : "▸"}</span>
                     <span className="truncate">{commune.nom}</span>
                   </button>
                   <button
                     onClick={() => onOpenCommune(commune)}
-                    className="shrink-0 rounded-md border border-black/15 px-2 py-0.5 text-xs hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+                    className="focus-ring shrink-0 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-primary-wash/60 coarse:min-h-9"
                   >
                     Ouvrir
                   </button>
@@ -113,52 +129,76 @@ export function UnlockedArtisansMenu({ onOpenCommune }: UnlockedArtisansMenuProp
                 {expanded && (
                   <div className="flex flex-col gap-1 px-3 pb-2 pl-8">
                     {artisans === "loading" && (
-                      <p className="text-xs text-black/50 dark:text-white/50">Chargement...</p>
+                      <p className="text-xs text-muted">Recherche des artisans…</p>
                     )}
                     {artisans === "error" && (
-                      <p className="text-xs text-red-600">Impossible de charger les artisans.</p>
-                    )}
-                    {Array.isArray(artisans) && artisans.length === 0 && (
-                      <p className="text-xs text-black/50 dark:text-white/50">
-                        Aucun artisan sans site web ici.
-                      </p>
+                      <p className="text-xs text-danger">Impossible de charger les artisans.</p>
                     )}
                     {Array.isArray(artisans) &&
-                      artisans.map((artisan) => (
-                        <div key={artisan.id} className="text-xs">
-                          <span className="flex items-center gap-1">
-                            <span className="truncate font-medium">{artisan.display_name}</span>
-                            {calledIds.has(artisan.id) && (
-                              <span
-                                title="Déjà appelé"
-                                className="shrink-0 text-green-600 dark:text-green-500"
-                              >
-                                ☎✓
-                              </span>
-                            )}
-                          </span>
-                          <div className="flex gap-3 text-black/60 dark:text-white/60">
-                            {artisan.national_phone_number && (
-                              <a
-                                href={`tel:${artisan.national_phone_number}`}
-                                className="hover:underline"
-                              >
-                                {artisan.national_phone_number}
-                              </a>
-                            )}
-                            {artisan.google_maps_uri && (
-                              <a
-                                href={artisan.google_maps_uri}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="hover:underline"
-                              >
-                                Fiche Google
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                      (() => {
+                        const shown = mobileOnly
+                          ? artisans.filter((a) => isMobilePhone(a.national_phone_number))
+                          : artisans;
+
+                        if (artisans.length === 0) {
+                          return <p className="text-xs text-muted">Aucun artisan sans site web ici.</p>;
+                        }
+                        if (shown.length === 0) {
+                          return <p className="text-xs text-muted">Aucun mobile (06/07) ici.</p>;
+                        }
+                        return shown.map((artisan) => {
+                          const called = calledIds.has(artisan.id);
+                          return (
+                            <div
+                              key={artisan.id}
+                              className={
+                                called
+                                  ? "rounded-md bg-success-wash px-1.5 py-1 text-xs"
+                                  : "px-1.5 py-1 text-xs"
+                              }
+                            >
+                              <label className="flex items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  className="accent-[var(--primary-strong)]"
+                                  checked={called}
+                                  disabled={togglingId === artisan.id}
+                                  onChange={(e) => onToggleCalled(artisan.id, e.target.checked)}
+                                />
+                                <span
+                                  className={
+                                    called
+                                      ? "truncate font-medium text-success-ink"
+                                      : "truncate font-medium"
+                                  }
+                                >
+                                  {artisan.display_name}
+                                </span>
+                              </label>
+                              <div className="flex gap-3 pl-6">
+                                {artisan.national_phone_number && (
+                                  <a
+                                    href={`tel:${artisan.national_phone_number}`}
+                                    className="font-mono text-ink tabular hover:underline"
+                                  >
+                                    {artisan.national_phone_number}
+                                  </a>
+                                )}
+                                {artisan.google_maps_uri && (
+                                  <a
+                                    href={artisan.google_maps_uri}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-accent hover:underline"
+                                  >
+                                    Fiche Google
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                   </div>
                 )}
               </div>

@@ -16,6 +16,7 @@ import { ArtisanPanel } from "@/components/ArtisanPanel";
 import { UnlockedArtisansMenu } from "@/components/UnlockedArtisansMenu";
 import { LoginPromptModal } from "@/components/LoginPromptModal";
 import { useAuth } from "@/lib/supabase/auth-context";
+import { useCalledArtisans } from "@/lib/useCalledArtisans";
 
 const clusterLayer: LayerProps = {
   id: "clusters",
@@ -23,14 +24,15 @@ const clusterLayer: LayerProps = {
   source: "communes",
   filter: ["has", "point_count"],
   paint: {
+    // Rampe séquentielle terracotta : plus le cluster est gros, plus il fonce.
     "circle-color": [
       "step",
       ["get", "point_count"],
-      "#4f8ef7",
+      "#e0a486",
       50,
-      "#f7b955",
+      "#c56a44",
       500,
-      "#f76b6b",
+      "#984a2b",
     ],
     "circle-radius": ["step", ["get", "point_count"], 16, 50, 24, 500, 32],
     "circle-stroke-width": 2,
@@ -59,7 +61,8 @@ const unclusteredPointLayer: LayerProps = {
   source: "communes",
   filter: ["!", ["has", "point_count"]],
   paint: {
-    "circle-color": "#1f9d55",
+    // Terracotta de marque (≈ oklch(0.55 0.14 40)) : un point = un prospect.
+    "circle-color": "#c15f3b",
     "circle-radius": 6,
     "circle-stroke-width": 1.5,
     "circle-stroke-color": "#ffffff",
@@ -71,6 +74,7 @@ export function CommunesMap() {
   const { user } = useAuth();
   const [selectedCommune, setSelectedCommune] = useState<CommuneProperties | null>(null);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const called = useCalledArtisans();
 
   const onClick = useCallback(
     (event: MapLayerMouseEvent) => {
@@ -141,7 +145,13 @@ export function CommunesMap() {
       </Map>
 
       {user && (
-        <UnlockedArtisansMenu onOpenCommune={(commune) => setSelectedCommune(commune)} />
+        <UnlockedArtisansMenu
+          onOpenCommune={(commune) => setSelectedCommune(commune)}
+          calledIds={called.calledIds}
+          togglingId={called.togglingId}
+          onMarkCalledIds={called.markCalledIds}
+          onToggleCalled={called.toggleCalled}
+        />
       )}
 
       {selectedCommune && (
@@ -149,6 +159,10 @@ export function CommunesMap() {
           key={selectedCommune.code}
           commune={selectedCommune}
           onClose={() => setSelectedCommune(null)}
+          calledIds={called.calledIds}
+          togglingId={called.togglingId}
+          onMarkCalledIds={called.markCalledIds}
+          onToggleCalled={called.toggleCalled}
         />
       )}
 
