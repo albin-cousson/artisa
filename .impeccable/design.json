@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-21T00:00:00.000Z",
+  "title": "Design System: Artisa",
+  "extensions": {
+    "colorMeta": {
+      "terracotta": {
+        "role": "primary",
+        "displayName": "Terracotta",
+        "canonical": "oklch(0.55 0.14 40)",
+        "tonalRamp": [
+          "oklch(0.22 0.06 38)",
+          "oklch(0.32 0.10 39)",
+          "oklch(0.42 0.14 39)",
+          "oklch(0.48 0.15 40)",
+          "oklch(0.55 0.14 40)",
+          "oklch(0.68 0.11 42)",
+          "oklch(0.82 0.07 44)",
+          "oklch(0.95 0.03 45)"
+        ]
+      },
+      "slate-blue": {
+        "role": "secondary",
+        "displayName": "Bleu ardoise",
+        "canonical": "oklch(0.47 0.13 255)",
+        "tonalRamp": [
+          "oklch(0.20 0.07 258)",
+          "oklch(0.30 0.10 257)",
+          "oklch(0.40 0.13 256)",
+          "oklch(0.47 0.13 255)",
+          "oklch(0.58 0.12 253)",
+          "oklch(0.70 0.11 250)",
+          "oklch(0.84 0.06 248)",
+          "oklch(0.95 0.02 246)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Encre chaude",
+        "canonical": "oklch(0.24 0.02 40)",
+        "tonalRamp": [
+          "oklch(0.18 0.006 50)",
+          "oklch(0.24 0.02 40)",
+          "oklch(0.36 0.018 42)",
+          "oklch(0.50 0.015 40)",
+          "oklch(0.68 0.012 50)",
+          "oklch(0.82 0.008 55)",
+          "oklch(0.92 0.008 50)",
+          "oklch(1 0 0)"
+        ]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Vert d'état",
+        "canonical": "oklch(0.58 0.12 155)",
+        "tonalRamp": [
+          "oklch(0.30 0.08 156)",
+          "oklch(0.40 0.10 155)",
+          "oklch(0.50 0.12 155)",
+          "oklch(0.58 0.12 155)",
+          "oklch(0.70 0.10 154)",
+          "oklch(0.82 0.06 153)",
+          "oklch(0.90 0.04 154)",
+          "oklch(0.94 0.03 155)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "Nom de commune, titres de modale." },
+      "title": { "displayName": "Title", "purpose": "Libellés de section, en-têtes de bloc." },
+      "body": { "displayName": "Body", "purpose": "Texte courant, descriptions (≤ 65ch)." },
+      "label": { "displayName": "Label", "purpose": "Méta discrète : code postal, statut. Jamais en eyebrow majuscule." },
+      "data": { "displayName": "Data (mono)", "purpose": "Numéros de téléphone, codes INSEE/postaux, population. Geist Mono tabulaire." }
+    },
+    "shadows": [
+      { "name": "overlay", "value": "0 8px 32px -8px oklch(0.24 0.02 40 / 0.18), 0 2px 8px -2px oklch(0.24 0.02 40 / 0.12)", "purpose": "Panneau latéral et modales flottant au-dessus de la carte." },
+      { "name": "popover", "value": "0 4px 16px -4px oklch(0.24 0.02 40 / 0.16)", "purpose": "Dropdowns et menus (Mes artisans, compte)." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Easing par défaut des transitions d'état (out-expo, jamais de bounce)." },
+      { "name": "duration-fast", "value": "150ms", "purpose": "Hover, focus, changement de couleur de bouton." },
+      { "name": "duration-panel", "value": "220ms", "purpose": "Entrée/sortie du ArtisanPanel et des modales." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Action principale d'un écran (S'inscrire, Se connecter). Une seule instance visible à la fois.",
+      "html": "<button class=\"ds-btn-primary\">Créer mon compte</button>",
+      "css": ".ds-btn-primary { background: oklch(0.48 0.15 40); color: oklch(1 0 0); font: 500 0.9375rem/1 'Geist', ui-sans-serif, system-ui, sans-serif; padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; transition: background 150ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-primary:hover { background: oklch(0.42 0.15 38); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(0.47 0.13 255); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Actions non-primaires : Fermer, Annuler.",
+      "html": "<button class=\"ds-btn-secondary\">Annuler</button>",
+      "css": ".ds-btn-secondary { background: oklch(0.975 0.006 60); color: oklch(0.24 0.02 40); font: 500 0.9375rem/1 'Geist', ui-sans-serif, system-ui, sans-serif; padding: 10px 16px; border: 1px solid oklch(0.92 0.008 50); border-radius: 8px; cursor: pointer; transition: background 150ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-secondary:hover { background: oklch(0.94 0.008 55); } .ds-btn-secondary:focus-visible { outline: 2px solid oklch(0.47 0.13 255); outline-offset: 2px; }"
+    },
+    {
+      "name": "Artisan Card",
+      "kind": "card",
+      "refersTo": "card-artisan",
+      "description": "Fiche d'un artisan sans site web : nom, téléphone (mono cliquable), lien Google, case Déjà appelé. Composant signature.",
+      "html": "<article class=\"ds-artisan\"><span class=\"ds-artisan-name\">Plomberie Martin</span><div class=\"ds-artisan-lines\"><a class=\"ds-artisan-phone\" href=\"tel:0134567890\">01 34 56 78 90</a><a class=\"ds-artisan-google\" href=\"#\" target=\"_blank\" rel=\"noreferrer\">Voir la fiche Google</a></div><label class=\"ds-artisan-called\"><input type=\"checkbox\" /> Déjà appelé</label></article>",
+      "css": ".ds-artisan { display: flex; flex-direction: column; gap: 6px; background: oklch(1 0 0); border: 1px solid oklch(0.92 0.008 50); border-radius: 12px; padding: 12px 14px; } .ds-artisan-name { font: 600 1rem/1.3 'Geist', ui-sans-serif, system-ui, sans-serif; color: oklch(0.24 0.02 40); letter-spacing: -0.005em; } .ds-artisan-lines { display: flex; flex-direction: column; gap: 2px; } .ds-artisan-phone { font: 500 0.9375rem/1.4 'Geist Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; color: oklch(0.24 0.02 40); text-decoration: none; } .ds-artisan-phone:hover { text-decoration: underline; } .ds-artisan-google { font: 400 0.9375rem/1.4 'Geist', ui-sans-serif, system-ui, sans-serif; color: oklch(0.47 0.13 255); text-decoration: none; } .ds-artisan-google:hover { text-decoration: underline; } .ds-artisan-called { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; font: 500 0.75rem/1.4 'Geist', ui-sans-serif, system-ui, sans-serif; color: oklch(0.50 0.015 40); cursor: pointer; } .ds-artisan-called input { accent-color: oklch(0.48 0.15 40); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Champ de formulaire auth / clé Google. Focus bleu ardoise, jamais outline nu.",
+      "html": "<input class=\"ds-input\" type=\"email\" placeholder=\"vous@exemple.fr\" />",
+      "css": ".ds-input { background: oklch(1 0 0); color: oklch(0.24 0.02 40); font: 400 0.9375rem/1.4 'Geist', ui-sans-serif, system-ui, sans-serif; padding: 10px 12px; border: 1px solid oklch(0.92 0.008 50); border-radius: 8px; width: 100%; } .ds-input::placeholder { color: oklch(0.50 0.015 40); } .ds-input:focus { outline: none; border-color: oklch(0.47 0.13 255); box-shadow: 0 0 0 3px oklch(0.47 0.13 255 / 0.15); }"
+    },
+    {
+      "name": "Called Badge",
+      "kind": "chip",
+      "refersTo": "badge-called",
+      "description": "Pastille d'état affichée sur une fiche marquée Déjà appelé.",
+      "html": "<span class=\"ds-badge-called\">Déjà appelé</span>",
+      "css": ".ds-badge-called { display: inline-flex; align-items: center; font: 500 0.75rem/1.4 'Geist', ui-sans-serif, system-ui, sans-serif; color: oklch(0.40 0.10 155); background: oklch(0.94 0.03 155); border-radius: 9999px; padding: 2px 8px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "L'établi de l'artisan",
+    "overview": "Artisa est un établi : un plan de travail net et blanc sur lequel un outil de démarchage pose, un par un, des prospects prêts à appeler. La terracotta — couleur de la tuile, de la brique, de la terre cuite du bâti français — signe la marque sans folklore : le métier qui affleure, pas un décor régional. Tout le reste est silence : blanc pur, encre chaude, une seule couleur de signal. Les données actionnables (téléphone, codes, population) sont en Geist Mono tabulaire, alignées comme les chiffres d'un instrument de mesure. Le système rejette l'esthétique de l'annuaire type Pages Jaunes : pas de jaune, pas d'encarts, pas de listes bruyantes.",
+    "keyCharacteristics": [
+      "Blanc pur comme plan de travail ; la couleur vit dans la marque, pas dans le fond.",
+      "Terracotta = signature métier, ≤ 10 % de l'écran.",
+      "Geist Mono pour toute donnée qu'on lit pour agir.",
+      "Plat par défaut ; l'ombre réservée à ce qui flotte.",
+      "Restreint : une marque, un bleu de signal, un vert d'état."
+    ],
+    "rules": [
+      { "name": "La règle « Une seule voix »", "body": "La terracotta occupe ≤ 10 % de n'importe quel écran. Sa rareté est ce qui la rend crédible ; noyée, elle devient décoration.", "section": "colors" },
+      { "name": "La règle « La carte porte la couleur »", "body": "Le fond de l'app est blanc pur. La densité chromatique vient de la carte MapLibre et des points de commune, pas de l'UI autour.", "section": "colors" },
+      { "name": "La règle « Mono = actionnable »", "body": "Si un nombre sert à agir (composer, identifier, comparer), il est en Geist Mono tabulaire. Si c'est de la prose, c'est en Geist sans.", "section": "typography" },
+      { "name": "La règle « Pas d'eyebrow »", "body": "Aucune micro-étiquette en majuscules tracées au-dessus des sections. C'est un outil, pas une landing.", "section": "typography" },
+      { "name": "La règle « Plat au repos »", "body": "Les surfaces sont plates tant qu'elles ne flottent pas. Une carte d'artisan a une bordure, pas une ombre. L'ombre signale exclusivement une couche d'UI au-dessus de la carte.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do garder le fond en blanc pur oklch(1 0 0) ; laisser la terracotta et la carte porter la couleur.",
+      "Do mettre en Geist Mono tabulaire tout nombre actionnable : téléphone, code postal, code INSEE, population.",
+      "Do limiter la terracotta à ≤ 10 % de l'écran.",
+      "Do utiliser muted (oklch(0.50 0.015 40), ~4.6:1) pour le texte secondaire, en remplacement des text-black/50 actuels.",
+      "Do réserver l'ombre aux couches flottantes (panneau, modales, popovers).",
+      "Do soigner les états du panneau : chargement (skeleton/spinner terracotta), vide (phrase utile + action), erreur (bouton Réessayer).",
+      "Do garder un anneau de focus visible (bleu ardoise) sur tout élément interactif."
+    ],
+    "donts": [
+      "Don't ressembler à un annuaire type Pages Jaunes : pas de jaune, pas d'encarts, pas de listes bruyantes.",
+      "Don't teinter le fond en crème/sable ; la chaleur passe par la terracotta, pas par le bg.",
+      "Don't ajouter une seconde police sans-serif ni un dégradé de texte (background-clip: text).",
+      "Don't poser une bordure colorée border-left > 1px comme accent.",
+      "Don't empiler des cartes dans des cartes.",
+      "Don't mettre une micro-étiquette en majuscules tracées (eyebrow) au-dessus des sections.",
+      "Don't utiliser du texte gris sur fond coloré : texte blanc sur les fills saturés, toujours.",
+      "Don't laisser un outline: none sans remplacement sur un champ ou un bouton."
+    ]
+  }
+}
