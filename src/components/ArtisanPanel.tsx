@@ -3,20 +3,39 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { recordViewedCommune } from "@/actions/communes";
-import { getCalledArtisanIds, setArtisanCalled } from "@/actions/calls";
+import { isMobilePhone } from "@/lib/phone";
 
 interface ArtisanPanelProps {
   commune: CommuneProperties;
   onClose: () => void;
+  /** État "déjà appelé" partagé avec "Mes artisans" (voir useCalledArtisans). */
+  calledIds: Set<string>;
+  togglingId: string | null;
+  onMarkCalledIds: (artisanIds: string[]) => void;
+  onToggleCalled: (artisanId: string, called: boolean) => void;
 }
 
 // Suppose que l'utilisateur est connecté : CommunesMap n'ouvre ce panneau
 // qu'après vérification de la session (sinon LoginPromptModal).
-export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
+export function ArtisanPanel({
+  commune,
+  onClose,
+  calledIds,
+  togglingId,
+  onMarkCalledIds,
+  onToggleCalled,
+}: ArtisanPanelProps) {
   const [artisans, setArtisans] = useState<Artisan[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [calledIds, setCalledIds] = useState<Set<string>>(new Set());
-  const [togglingCalledId, setTogglingCalledId] = useState<string | null>(null);
+  const [mobileOnly, setMobileOnly] = useState(false);
+
+  // Liste affichée : filtrée aux mobiles (06/07) quand la case est cochée.
+  const visibleArtisans =
+    artisans === null
+      ? null
+      : mobileOnly
+        ? artisans.filter((artisan) => isMobilePhone(artisan.national_phone_number))
+        : artisans;
 
   const loadArtisans = useCallback(() => {
     setArtisans(null);
@@ -37,7 +56,9 @@ export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
         }
         setArtisans(data.artisans);
       })
-      .catch(() => setError("Impossible de charger les artisans."));
+      .catch(() =>
+        setError("Impossible de charger les artisans. Vérifie ta connexion, puis rouvre la commune."),
+      );
   }, [commune.code, commune.lat, commune.lng]);
 
   useEffect(() => {
@@ -49,95 +70,119 @@ export function ArtisanPanel({ commune, onClose }: ArtisanPanelProps) {
     if (!artisans) return;
     recordViewedCommune(commune);
     if (artisans.length === 0) return;
-    const ids = artisans.map((artisan) => artisan.id);
-    getCalledArtisanIds(ids).then((calledIds) => setCalledIds(new Set(calledIds)));
+    onMarkCalledIds(artisans.map((artisan) => artisan.id));
+    // onMarkCalledIds vient de useCalledArtisans (identité stable, useCallback
+    // sans dépendances) : l'omettre évite de re-fetcher à chaque re-render de
+    // CommunesMap sans jamais rater un changement réel de commune/artisans.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artisans, commune]);
 
-  function handleToggleCalled(artisanId: string, called: boolean) {
-    setTogglingCalledId(artisanId);
-    setArtisanCalled(artisanId, called).then((result) => {
-      setTogglingCalledId(null);
-      if (result.error) return;
-      setCalledIds((prev) => {
-        const next = new Set(prev);
-        if (called) next.add(artisanId);
-        else next.delete(artisanId);
-        return next;
-      });
-    });
-  }
-
   return (
-    <aside className="absolute right-0 top-0 z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-neutral-950">
-      <div className="flex items-center justify-between border-b border-black/10 px-4 py-3 dark:border-white/10">
+    <aside className="animate-panel-in absolute right-0 top-0 z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-border bg-bg text-ink shadow-[var(--shadow-overlay)]">
+      <div className="sticky top-0 flex items-center justify-between border-b border-border bg-bg px-4 py-3">
         <div>
           <h2 className="text-lg font-semibold">{commune.nom}</h2>
-          <p className="text-xs text-black/50 dark:text-white/50">
+          <p className="font-mono text-xs text-muted tabular">
             {commune.codePostal ?? commune.code}
             {commune.population ? ` · ${commune.population.toLocaleString("fr-FR")} hab.` : ""}
           </p>
         </div>
         <button
           onClick={onClose}
-          className="rounded-md px-2 py-1 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+          className="focus-ring inline-flex items-center rounded-md px-3 py-1.5 text-sm text-ink hover:bg-ink/5 coarse:min-h-11"
         >
           Fermer
         </button>
       </div>
 
       <div className="flex flex-col gap-3 p-4">
-        <p className="text-sm text-black/60 dark:text-white/60">
-          Artisans sans site web repérés dans cette commune :
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted">Artisans sans site web repérés :</p>
+          {artisans && artisans.length > 0 && (
+            <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
+              <input
+                type="checkbox"
+                className="accent-[var(--primary-strong)]"
+                checked={mobileOnly}
+                onChange={(e) => setMobileOnly(e.target.checked)}
+              />
+              Mobiles (06/07)
+            </label>
+          )}
+        </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
         {!error && artisans === null && (
-          <p className="text-sm text-black/50 dark:text-white/50">Recherche en cours...</p>
+          <p className="text-sm text-muted">Recherche des artisans…</p>
         )}
 
         {artisans?.length === 0 && (
-          <p className="text-sm text-black/50 dark:text-white/50">
-            Aucun artisan sans site web trouvé ici pour l&apos;instant.
+          <p className="text-sm text-muted">
+            Aucun artisan sans site web ici pour le moment. Tente une commune voisine.
           </p>
         )}
 
-        {artisans?.map((artisan) => (
-          <div
-            key={artisan.id}
-            className="rounded-lg border border-black/10 p-3 dark:border-white/10"
-          >
-            <span className="font-medium">{artisan.display_name}</span>
+        {artisans && artisans.length > 0 && visibleArtisans?.length === 0 && (
+          <p className="text-sm text-muted">
+            Aucun mobile (06/07) ici. Décoche le filtre pour voir aussi les numéros fixes.
+          </p>
+        )}
 
-            <div className="mt-1 flex flex-col gap-0.5 text-sm text-black/70 dark:text-white/70">
-              {artisan.national_phone_number && (
-                <a href={`tel:${artisan.national_phone_number}`} className="hover:underline">
-                  {artisan.national_phone_number}
-                </a>
-              )}
-              {artisan.google_maps_uri && (
-                <a
-                  href={artisan.google_maps_uri}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:underline"
-                >
-                  Voir la fiche Google
-                </a>
-              )}
+        {visibleArtisans?.map((artisan) => {
+          const called = calledIds.has(artisan.id);
+          return (
+            <div
+              key={artisan.id}
+              className={
+                called
+                  ? "rounded-lg border border-success-ink/20 bg-success-wash p-3"
+                  : "rounded-lg border border-border p-3"
+              }
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold">{artisan.display_name}</span>
+                {called && (
+                  <span className="shrink-0 rounded-full bg-success-wash px-2 py-0.5 text-xs font-medium text-success-ink">
+                    Déjà appelé
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-1 flex flex-col gap-0.5 text-sm">
+                {artisan.national_phone_number && (
+                  <a
+                    href={`tel:${artisan.national_phone_number}`}
+                    className="font-mono text-ink tabular hover:underline"
+                  >
+                    {artisan.national_phone_number}
+                  </a>
+                )}
+                {artisan.google_maps_uri && (
+                  <a
+                    href={artisan.google_maps_uri}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    Voir la fiche Google
+                  </a>
+                )}
+              </div>
+
+              <label className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--primary-strong)]"
+                  checked={called}
+                  disabled={togglingId === artisan.id}
+                  onChange={(e) => onToggleCalled(artisan.id, e.target.checked)}
+                />
+                Déjà appelé
+              </label>
             </div>
-
-            <label className="mt-2 flex items-center gap-1.5 text-xs text-black/70 dark:text-white/70">
-              <input
-                type="checkbox"
-                checked={calledIds.has(artisan.id)}
-                disabled={togglingCalledId === artisan.id}
-                onChange={(e) => handleToggleCalled(artisan.id, e.target.checked)}
-              />
-              Déjà appelé
-            </label>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -71,53 +73,47 @@ export default function SignupPage() {
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
           Email
-          <input
+          <Input
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="rounded-md border border-black/15 px-3 py-2 dark:border-white/20 dark:bg-black/30"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Mot de passe
-          <input
+          <Input
             type="password"
             required
             minLength={6}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="rounded-md border border-black/15 px-3 py-2 dark:border-white/20 dark:bg-black/30"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Clé API Google Places
-          <input
+          <Input
+            mono
             type="text"
             required
             value={googleApiKey}
             onChange={(e) => setGoogleApiKey(e.target.value)}
-            className="rounded-md border border-black/15 px-3 py-2 font-mono text-xs dark:border-white/20 dark:bg-black/30"
           />
-          <span className="text-xs font-normal text-black/50 dark:text-white/50">
+          <span className="text-xs font-normal text-muted">
             Ta propre clé (Google Cloud Console → APIs &amp; Services → Credentials, avec
             &quot;Places API (New)&quot; activée) : les recherches se font avec ton propre quota,
             c&apos;est ce qui permet d&apos;utiliser Artisa gratuitement.
           </span>
           <ApiKeyHelpButton className="mt-1" />
         </label>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-md bg-black px-4 py-2 font-medium text-white transition hover:bg-black/80 disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          {loading ? "Création..." : "Créer mon compte"}
-        </button>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <Button type="submit" disabled={loading} className="w-full">
+          {loading ? "Création du compte…" : "Créer mon compte"}
+        </Button>
       </form>
-      <p className="text-sm text-black/60 dark:text-white/60">
+      <p className="text-sm text-muted">
         Déjà un compte ?{" "}
-        <Link href="/login" className="font-medium underline">
+        <Link href="/login" className="font-medium text-accent underline">
           Se connecter
         </Link>
       </p>

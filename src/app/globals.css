@@ -1,26 +1,152 @@
 @import "tailwindcss";
 
+/* Cible les appareils tactiles (doigt/stylet) pour agrandir les cibles :
+   `coarse:min-h-11` porte un contrôle à 44px sur mobile sans alourdir le desktop. */
+@custom-variant coarse (@media (pointer: coarse));
+
+/*
+ * Artisa design tokens — voir DESIGN.md (North Star « L'établi de l'artisan »).
+ * Les rôles sémantiques sont des variables CSS qui basculent clair/sombre ici,
+ * puis sont exposées à Tailwind via `@theme inline` : `bg-surface`, `text-ink`,
+ * `text-muted`, `border-border`, `bg-primary`… s'adaptent au thème tout seuls,
+ * sans variantes `dark:`.
+ *
+ * Le thème est piloté par `data-theme` sur <html> (posé avant le paint par un
+ * script inline dans layout.tsx, puis basculable par ThemeToggle). Par défaut,
+ * le script résout la préférence système ; un choix manuel la surcharge.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Neutres */
+  --bg: oklch(1 0 0);
+  --surface: oklch(0.975 0.006 60);
+  --border: oklch(0.92 0.008 50);
+  --ink: oklch(0.24 0.02 40);
+  --muted: oklch(0.5 0.015 40);
+
+  /* Marque — terracotta */
+  --primary: oklch(0.55 0.14 40);        /* accents, icônes, points de carte */
+  --primary-strong: oklch(0.48 0.15 40); /* fond de bouton (texte blanc ≥ 4.5:1) */
+  --primary-hover: oklch(0.42 0.15 38);
+  --primary-wash: oklch(0.95 0.03 45);   /* fond très pâle, zones sélectionnées */
+  --on-primary: oklch(1 0 0);            /* texte sur fond terracotta */
+
+  /* Signal & états */
+  --accent: oklch(0.47 0.13 255);        /* liens, info */
+  --success-wash: oklch(0.94 0.03 155);
+  --success-ink: oklch(0.4 0.1 155);
+  --danger: oklch(0.53 0.18 27);
+
+  /* Habillage */
+  --overlay: oklch(0.24 0.02 40 / 0.45); /* backdrop de modale */
+  --ring: oklch(0.47 0.13 255);          /* anneau de focus */
+  --shadow-overlay: 0 8px 32px -8px oklch(0.24 0.02 40 / 0.18),
+    0 2px 8px -2px oklch(0.24 0.02 40 / 0.12);
+  --shadow-popover: 0 4px 16px -4px oklch(0.24 0.02 40 / 0.16);
+}
+
+:root[data-theme="dark"] {
+  --bg: oklch(0.18 0.006 50);
+  --surface: oklch(0.22 0.008 50);
+  --border: oklch(0.3 0.008 50);
+  --ink: oklch(0.94 0.006 60);
+  --muted: oklch(0.68 0.012 50);
+
+  /* En sombre, la terracotta s'éclaircit et porte un texte encre foncé */
+  --primary: oklch(0.72 0.13 45);
+  --primary-strong: oklch(0.72 0.13 45);
+  --primary-hover: oklch(0.66 0.13 44);
+  --primary-wash: oklch(0.3 0.05 45);
+  --on-primary: oklch(0.2 0.02 40);
+
+  --accent: oklch(0.7 0.11 250);
+  --success-wash: oklch(0.3 0.04 155);
+  --success-ink: oklch(0.82 0.1 155);
+  --danger: oklch(0.68 0.16 27);
+
+  --overlay: oklch(0 0 0 / 0.6);
+  --ring: oklch(0.7 0.11 250);
+  --shadow-overlay: 0 8px 32px -8px oklch(0 0 0 / 0.5),
+    0 2px 8px -2px oklch(0 0 0 / 0.4);
+  --shadow-popover: 0 4px 16px -4px oklch(0 0 0 / 0.45);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-wash: var(--primary-wash);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-success-wash: var(--success-wash);
+  --color-success-ink: var(--success-ink);
+  --color-danger: var(--danger);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Les chiffres qu'on lit pour agir (téléphone, codes, population) sont alignés. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Anneau de focus de marque (bleu ardoise), cohérent avec la primitive Button,
+   pour tout élément interactif qui ne passe pas par elle. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Motion d'arrivée — tokens DESIGN.md (ease-out 0.16,1,0.3,1 ; 150-220ms).
+   L'état final EST l'état naturel : si l'animation ne joue pas (mouvement
+   réduit, rendu headless), le contenu reste pleinement visible. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.98);
+  }
+}
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+.animate-panel-in {
+  animation: panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-modal-in {
+  animation: modal-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-overlay-in {
+  animation: overlay-in 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-panel-in,
+  .animate-modal-in,
+  .animate-overlay-in {
+    animation: none;
+  }
 }

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Design Context
+
+Strategic design context lives in `PRODUCT.md` (root): register `product`, platform `web`, target users = freelances/commerciaux doing cold-outreach (each with their own Google Places key), personality "efficace, direct, pro", anti-reference = never look like a Pages Jaunes directory. Read it before UI work. The `/impeccable` skill is set up for this project (`.impeccable/live/config.json` preconfigures live mode); DESIGN.md captures the visual system.
+
 ## What this is
 
 Artisa: a Next.js app showing an interactive map of every French commune (~35k), letting users click a commune to see local artisans who have no website (sourced from Google Places), with phone number and Google Maps listing, for cold-outreach ("démarchage"). The map itself is visible without an account, but viewing a commune's artisans requires login: each account supplies its own Google Places API key at signup, so Google Places costs land on that account's own Google Cloud billing rather than a shared one — this is what makes the app free to run for its owner. There is no paywall or free-tier quota; once logged in, all artisans in a commune are visible immediately. Users can check off an artisan as "already called" (`user_artisan_calls`) to avoid re-contacting them, and a "my artisans" menu lists every commune they've viewed. There is no review/rating feature.
