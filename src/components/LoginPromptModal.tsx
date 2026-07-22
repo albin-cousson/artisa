@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { Modal } from "@/components/ui/Modal";
+import { Button, buttonVariants } from "@/components/ui/Button";
 
 interface LoginPromptModalProps {
   onClose: () => void;
@@ -8,40 +10,25 @@ interface LoginPromptModalProps {
 
 export function LoginPromptModal({ onClose }: LoginPromptModalProps) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold">Connecte-toi pour voir les artisans</h2>
-        <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-          La recherche d&apos;artisans est réservée aux membres. Crée un compte gratuitement (il
-          te suffit d&apos;indiquer ta propre clé Google Places API) ou connecte-toi.
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            Annuler
-          </button>
-          <Link
-            href="/signup"
-            className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
-          >
-            Créer un compte
-          </Link>
-          <Link
-            href="/login"
-            className="rounded-md bg-black px-3 py-1.5 text-sm font-medium text-white hover:bg-black/80 dark:bg-white dark:text-black"
-          >
-            Se connecter
-          </Link>
-        </div>
+    <Modal onClose={onClose} labelledBy="login-prompt-title">
+      <h2 id="login-prompt-title" className="text-lg font-semibold">
+        Connecte-toi pour voir les artisans
+      </h2>
+      <p className="mt-2 text-sm text-muted">
+        Voir les artisans d&apos;une commune demande un compte. C&apos;est gratuit : il te
+        suffit d&apos;ajouter ta propre clé Google Places.
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Annuler
+        </Button>
+        <Link href="/signup" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+          Créer un compte
+        </Link>
+        <Link href="/login" className={buttonVariants({ variant: "primary", size: "sm" })}>
+          Se connecter
+        </Link>
       </div>
-    </div>
+    </Modal>
   );
 }

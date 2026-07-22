@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 
 // Pop-up de bienvenue affichée après une inscription réussie. Déclenchée par le
 // flag `?welcome=1` posé par la page signup, qu'on retire de l'URL à l'ouverture
@@ -21,26 +23,17 @@ export function WelcomeModal() {
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => setOpen(false)}
-    >
-      <div
-        className="w-full max-w-sm rounded-lg bg-white p-6 text-center shadow-xl dark:bg-neutral-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-4xl">🎉</div>
-        <h2 className="mt-3 text-lg font-semibold">Félicitations&nbsp;!</h2>
-        <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-          Ton compte a été créé avec succès. Clique sur une commune pour découvrir ses artisans.
-        </p>
-        <button
-          onClick={() => setOpen(false)}
-          className="mt-4 w-full rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-black/80 dark:bg-white dark:text-black"
-        >
-          Commencer
-        </button>
-      </div>
-    </div>
+    <Modal onClose={() => setOpen(false)} className="text-center" labelledBy="welcome-title">
+      <div className="text-4xl">🎉</div>
+      <h2 id="welcome-title" className="mt-3 text-lg font-semibold">
+        Bienvenue sur Artisa
+      </h2>
+      <p className="mt-2 text-sm text-muted">
+        Ton compte est prêt. Clique sur une commune pour voir ses artisans à démarcher.
+      </p>
+      <Button className="mt-4 w-full" onClick={() => setOpen(false)}>
+        Commencer
+      </Button>
+    </Modal>
   );
 }
