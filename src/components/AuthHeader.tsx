@@ -7,10 +7,12 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { notifyCommuneSelected } from "@/lib/communeEvents";
+import { AccountSettingsModal } from "@/components/AccountSettingsModal";
 import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
 import { CommuneSearch } from "@/components/CommuneSearch";
 import { GithubStarButton } from "@/components/GithubStarButton";
 import { QuotaBadge } from "@/components/QuotaBadge";
+import { SettingsMenu } from "@/components/SettingsMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, buttonVariants } from "@/components/ui/Button";
 
@@ -45,6 +47,7 @@ export function AuthHeader() {
                 label="Aide & quotas"
                 buttonClassName={SECONDARY}
               />
+              <SettingsMenu buttonClassName={SECONDARY} />
               <GithubStarButton buttonClassName={SECONDARY} className="text-sm" />
               <Button variant="secondary" size="sm" onClick={handleSignOut}>
                 Se déconnecter
@@ -85,6 +88,7 @@ export function AuthHeader() {
 // fonctionne, mais rien n'est visible. Le portal évite complètement le piège.
 function AccountMenu({ email, onSignOut }: { email: string; onSignOut: () => void }) {
   const [open, setOpen] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
 
@@ -151,6 +155,16 @@ function AccountMenu({ email, onSignOut }: { email: string; onSignOut: () => voi
                 <QuotaBadge />
               </div>
               <div className="my-1 h-px bg-border" />
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  setShowAccountModal(true);
+                }}
+                className={MENU_ITEM}
+              >
+                Compte
+              </button>
               <ApiKeyHelpButton
                 includeSetup={false}
                 label="Aide & quotas"
@@ -171,6 +185,10 @@ function AccountMenu({ email, onSignOut }: { email: string; onSignOut: () => voi
           </>,
           document.body,
         )}
+
+      {showAccountModal && (
+        <AccountSettingsModal onClose={() => setShowAccountModal(false)} />
+      )}
     </>
   );
 }
