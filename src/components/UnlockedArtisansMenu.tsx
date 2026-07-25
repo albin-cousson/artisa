@@ -2,9 +2,15 @@
 
 import { useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
-import { listViewedCommunes } from "@/actions/communes";
+import { listViewedCommunes, removeViewedCommune } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
 import { normalizeForSearch } from "@/lib/text";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+
+type PendingRemoval =
+  | { type: "commune"; communeCode: string; label: string }
+  | { type: "artisan"; communeCode: string; artisanId: string; label: string };
 
 // Les artisans d'une commune dépliée : chargés à la demande depuis /api/places
 // (déjà cachés côté serveur, donc pas de nouvel appel Google) — tous ceux sans
@@ -32,6 +38,7 @@ export function UnlockedArtisansMenu({
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [artisansByCommune, setArtisansByCommune] = useState<Record<string, CommuneArtisans>>({});
   const [mobileOnly, setMobileOnly] = useState(false);
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [communeQuery, setCommuneQuery] = useState("");
   const [artisanQuery, setArtisanQuery] = useState("");
 
@@ -44,6 +51,32 @@ export function UnlockedArtisansMenu({
     // être consultées depuis le panneau sans passer par ce composant.
     if (!open) listViewedCommunes().then(setCommunes);
     setOpen((value) => !value);
+  }
+
+  // Retire uniquement le lien user <-> commune : la commune et ses artisans
+  // restent en cache partagé, toujours consultables gratuitement par
+  // n'importe quel utilisateur (y compris celui-ci depuis la carte).
+  function confirmRemoval() {
+    if (!pendingRemoval) return;
+
+    if (pendingRemoval.type === "commune") {
+      removeViewedCommune(pendingRemoval.communeCode);
+      setCommunes((prev) => prev.filter((c) => c.code !== pendingRemoval.communeCode));
+    } else {
+      // Retire uniquement le lien user <-> artisan ("déjà appelé") : l'artisan
+      // reste dans le cache partagé de la commune, toujours consultable par tous.
+      onToggleCalled(pendingRemoval.artisanId, false);
+      setArtisansByCommune((prev) => {
+        const current = prev[pendingRemoval.communeCode];
+        if (!Array.isArray(current)) return prev;
+        return {
+          ...prev,
+          [pendingRemoval.communeCode]: current.filter((a) => a.id !== pendingRemoval.artisanId),
+        };
+      });
+    }
+
+    setPendingRemoval(null);
   }
 
   function toggleCommune(commune: CommuneProperties) {
@@ -146,6 +179,19 @@ export function UnlockedArtisansMenu({
                   >
                     Ouvrir
                   </button>
+                  <button
+                    onClick={() =>
+                      setPendingRemoval({
+                        type: "commune",
+                        communeCode: commune.code,
+                        label: commune.nom,
+                      })
+                    }
+                    aria-label={`Retirer ${commune.nom} de mes artisans`}
+                    className="focus-ring shrink-0 rounded-md border border-border px-2 py-1.5 text-xs text-danger hover:bg-danger/10 coarse:min-h-9"
+                  >
+                    Retirer
+                  </button>
                 </div>
 
                 {expanded && (
@@ -194,24 +240,40 @@ export function UnlockedArtisansMenu({
                                   : "px-1.5 py-1 text-xs"
                               }
                             >
-                              <label className="flex items-center gap-1.5">
-                                <input
-                                  type="checkbox"
-                                  className="accent-[var(--primary-strong)]"
-                                  checked={called}
-                                  disabled={togglingId === artisan.id}
-                                  onChange={(e) => onToggleCalled(artisan.id, e.target.checked)}
-                                />
-                                <span
-                                  className={
-                                    called
-                                      ? "truncate font-medium text-success-ink"
-                                      : "truncate font-medium"
+                              <div className="flex items-center justify-between gap-1.5">
+                                <label className="flex min-w-0 items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    className="accent-[var(--primary-strong)]"
+                                    checked={called}
+                                    disabled={togglingId === artisan.id}
+                                    onChange={(e) => onToggleCalled(artisan.id, e.target.checked)}
+                                  />
+                                  <span
+                                    className={
+                                      called
+                                        ? "truncate font-medium text-success-ink"
+                                        : "truncate font-medium"
+                                    }
+                                  >
+                                    {artisan.display_name}
+                                  </span>
+                                </label>
+                                <button
+                                  onClick={() =>
+                                    setPendingRemoval({
+                                      type: "artisan",
+                                      communeCode: commune.code,
+                                      artisanId: artisan.id,
+                                      label: artisan.display_name,
+                                    })
                                   }
+                                  aria-label={`Retirer ${artisan.display_name} de mes artisans`}
+                                  className="focus-ring shrink-0 text-muted hover:text-danger"
                                 >
-                                  {artisan.display_name}
-                                </span>
-                              </label>
+                                  Retirer
+                                </button>
+                              </div>
                               <div className="flex gap-3 pl-6">
                                 {artisan.national_phone_number && (
                                   <a
@@ -242,6 +304,29 @@ export function UnlockedArtisansMenu({
             );
           })}
         </div>
+      )}
+
+      {pendingRemoval && (
+        <Modal
+          onClose={() => setPendingRemoval(null)}
+          size="sm"
+          labelledBy="confirm-removal-title"
+        >
+          <h2 id="confirm-removal-title" className="text-base font-semibold">
+            Retirer « {pendingRemoval.label} » de mes artisans ?
+          </h2>
+          <p className="mt-2 text-sm text-muted">
+            {pendingRemoval.type === "commune"
+              ? "Elle ne sera plus affichée dans « Mes artisans », mais reste consultable gratuitement par tout le monde, y compris toi depuis la carte."
+              : "Il ne sera plus affiché dans « Mes artisans », mais reste consultable gratuitement par tout le monde dans cette commune."}
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setPendingRemoval(null)}>
+              Annuler
+            </Button>
+            <Button onClick={confirmRemoval}>Retirer</Button>
+          </div>
+        </Modal>
       )}
     </div>
   );

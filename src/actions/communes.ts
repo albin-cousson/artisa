@@ -34,6 +34,29 @@ export async function recordViewedCommune(commune: CommuneProperties) {
   }
 }
 
+// Retire une commune du menu "Mes artisans" : supprime uniquement le lien
+// user <-> commune. La commune et ses artisans restent en cache partagé,
+// toujours consultables gratuitement par n'importe quel utilisateur (y
+// compris celui-ci, en la rouvrant depuis la carte).
+export async function removeViewedCommune(communeCode: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "unauthenticated" as const };
+  }
+
+  const { error } = await supabase
+    .from("user_viewed_communes")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("commune_code", communeCode);
+
+  return { error: error?.message ?? null };
+}
+
 export async function listViewedCommunes(): Promise<CommuneProperties[]> {
   const supabase = await createClient();
   const {
