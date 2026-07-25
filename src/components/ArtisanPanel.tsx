@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { recordViewedCommune } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
+import { notifyQuotaUpdated } from "@/lib/quota";
 
 interface ArtisanPanelProps {
   commune: CommuneProperties;
@@ -27,6 +28,8 @@ export function ArtisanPanel({
 }: ArtisanPanelProps) {
   const [artisans, setArtisans] = useState<Artisan[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [mobileOnly, setMobileOnly] = useState(false);
 
   // Liste affichée : filtrée aux mobiles (06/07) quand la case est cochée.
@@ -40,6 +43,7 @@ export function ArtisanPanel({
   const loadArtisans = useCallback(() => {
     setArtisans(null);
     setError(null);
+    setNotice(null);
 
     const params = new URLSearchParams({
       code: commune.code,
@@ -55,6 +59,9 @@ export function ArtisanPanel({
           return;
         }
         setArtisans(data.artisans);
+        setNotice(data.quotaNotice ?? null);
+        setQuota(data.quota ?? null);
+        if (data.quota) notifyQuotaUpdated(data.quota);
       })
       .catch(() =>
         setError("Impossible de charger les artisans. Vérifie ta connexion, puis rouvre la commune."),
@@ -112,6 +119,7 @@ export function ArtisanPanel({
         </div>
 
         {error && <p className="text-sm text-danger">{error}</p>}
+        {!error && notice && <p className="text-sm text-accent">{notice}</p>}
 
         {!error && artisans === null && (
           <p className="text-sm text-muted">Recherche des artisans…</p>
@@ -183,6 +191,22 @@ export function ArtisanPanel({
             </div>
           );
         })}
+
+        {notice &&
+          (() => {
+            const remaining = quota ? quota.limit - quota.used : null;
+            const quotaExhausted = remaining !== null && remaining <= 0;
+            return (
+              <button
+                type="button"
+                onClick={loadArtisans}
+                disabled={quotaExhausted}
+                className="focus-ring mt-1 inline-flex items-center justify-center rounded-md border border-border px-3 py-2 text-sm font-medium text-ink hover:bg-ink/5 disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-transparent coarse:min-h-11"
+              >
+                {quotaExhausted ? "Quota atteint" : "Charger le reste"}
+              </button>
+            );
+          })()}
       </div>
     </aside>
   );

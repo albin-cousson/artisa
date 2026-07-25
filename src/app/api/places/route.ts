@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { countQuotaUsedToday, getDailyQuotaLimit } from "@/lib/quota";
 
 // Types de métiers d'artisans recherchés. Nearby Search (New) accepte plusieurs
 // types dans un seul appel (résultats = union des types), donc pas besoin d'une
@@ -76,6 +77,8 @@ export async function GET(request: NextRequest) {
     cacheEntry &&
     Date.now() - new Date(cacheEntry.searched_at).getTime() < CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
 
+  let quotaNotice: string | null = null;
+
   if (!isFresh) {
     if (!googleApiKey) {
       return NextResponse.json(
@@ -83,9 +86,26 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
-    const refresh = await refreshCommune(communeCode, lat, lng, googleApiKey);
+
+    const used = await countQuotaUsedToday(supabase, user.id);
+    const limit = getDailyQuotaLimit(user);
+    const remaining = limit - used;
+
+    if (remaining <= 0) {
+      return NextResponse.json(
+        {
+          error: `Quota Google quotidien atteint (${limit}/${limit} aujourd'hui). Les communes déjà explorées restent consultables ; réessaie après la remise à zéro, vers 9h heure de Paris (minuit en Californie).`,
+        },
+        { status: 429 }
+      );
+    }
+
+    const refresh = await refreshCommune(communeCode, lat, lng, googleApiKey, user.id, remaining);
     if (!refresh.ok) {
       return NextResponse.json({ error: refresh.error }, { status: 502 });
+    }
+    if (refresh.partial) {
+      quotaNotice = `Quota Google presque atteint : ${refresh.knownCount}/${MAX_DETAILS_PER_SEARCH} artisans chargés ici pour l'instant, il peut y en avoir d'autres. Reviens charger le reste dès que le quota se régénère.`;
     }
   }
 
@@ -100,18 +120,32 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ artisans: artisans ?? [] });
+  const quota = {
+    used: await countQuotaUsedToday(supabase, user.id),
+    limit: getDailyQuotaLimit(user),
+  };
+
+  return NextResponse.json({ artisans: artisans ?? [], quotaNotice, quota });
 }
 
-type RefreshResult = { ok: true } | { ok: false; error: string };
+type RefreshResult =
+  | { ok: true; partial: boolean; knownCount: number }
+  | { ok: false; error: string };
 
 async function refreshCommune(
   communeCode: string,
   lat: number,
   lng: number,
-  apiKey: string
+  apiKey: string,
+  userId: string,
+  remainingQuota: number
 ): Promise<RefreshResult> {
   const supabase = createServiceRoleClient();
+
+  // On ne demande jamais plus de candidats que le quota restant ne permet d'en
+  // détailler : mieux vaut une commune partielle et clairement signalée qu'une
+  // ville comme Strasbourg qui échoue en silence au milieu de la boucle.
+  const requestedCount = Math.min(MAX_DETAILS_PER_SEARCH, remainingQuota);
 
   try {
     const nearbyRes = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
@@ -123,7 +157,7 @@ async function refreshCommune(
       },
       body: JSON.stringify({
         includedTypes: ARTISAN_TYPES,
-        maxResultCount: MAX_DETAILS_PER_SEARCH,
+        maxResultCount: requestedCount,
         locationRestriction: {
           circle: { center: { latitude: lat, longitude: lng }, radius: 5000 },
         },
@@ -139,7 +173,24 @@ async function refreshCommune(
     const nearbyData = (await nearbyRes.json()) as { places?: NearbySearchPlace[] };
     const candidates = nearbyData.places ?? [];
 
-    for (const candidate of candidates) {
+    // Nearby Search est quasi déterministe (même lieu, mêmes types) : sans ce
+    // filtre, "Charger le reste" après un rechargement de quota re-dépenserait
+    // le quota sur les artisans déjà connus au lieu d'atteindre les nouveaux.
+    const { data: existingRows } = await supabase
+      .from("artisans")
+      .select("place_id")
+      .eq("commune_code", communeCode);
+    const existingPlaceIds = new Set((existingRows ?? []).map((row) => row.place_id));
+    const newCandidates = candidates.filter((candidate) => !existingPlaceIds.has(candidate.id));
+
+    let fetchedCount = 0;
+    let quotaHitMidLoop = false;
+
+    for (const candidate of newCandidates) {
+      // Journalisé même en cas d'échec juste après : la tentative compte déjà
+      // dans le quota Google, qu'elle réussisse ou non.
+      await supabase.from("google_places_quota_usage").insert({ user_id: userId });
+
       const detailsRes = await fetch(`https://places.googleapis.com/v1/places/${candidate.id}`, {
         headers: {
           "X-Goog-Api-Key": apiKey,
@@ -148,7 +199,15 @@ async function refreshCommune(
       });
 
       if (!detailsRes.ok) {
-        console.error("Erreur Place Details:", await detailsRes.text());
+        const body = await detailsRes.text();
+        console.error("Erreur Place Details:", body);
+        if (isQuotaError(detailsRes.status, body)) {
+          // Le quota mesuré côté app était optimiste (autre appareil, autre
+          // requête concurrente...) : on s'arrête net plutôt que d'enchaîner
+          // des échecs pour chaque candidat restant.
+          quotaHitMidLoop = true;
+          break;
+        }
         continue;
       }
 
@@ -166,17 +225,32 @@ async function refreshCommune(
         },
         { onConflict: "place_id" }
       );
+      fetchedCount++;
     }
 
-    await supabase
-      .from("commune_search_cache")
-      .upsert({ commune_code: communeCode, searched_at: new Date().toISOString() });
+    // Si Google a renvoyé exactement le nombre demandé, il peut en exister
+    // d'autres qu'on n'a pas eu le budget d'interroger : la commune n'est PAS
+    // entièrement explorée, il ne faut donc pas la figer 60 jours dans le
+    // cache avec une liste tronquée.
+    const trimmedByBudget = requestedCount < MAX_DETAILS_PER_SEARCH && candidates.length === requestedCount;
+    const isComplete = !quotaHitMidLoop && !trimmedByBudget;
 
-    return { ok: true };
+    if (isComplete) {
+      await supabase
+        .from("commune_search_cache")
+        .upsert({ commune_code: communeCode, searched_at: new Date().toISOString() });
+    }
+
+    return { ok: true, partial: !isComplete, knownCount: existingPlaceIds.size + fetchedCount };
   } catch (err) {
     console.error("Erreur lors du rafraîchissement Google Places:", err);
     return { ok: false, error: "Impossible de contacter Google Places. Réessaie plus tard." };
   }
+}
+
+function isQuotaError(httpStatus: number, rawBody: string): boolean {
+  const lower = rawBody.toLowerCase();
+  return lower.includes("resource_exhausted") || lower.includes("quota") || httpStatus === 429;
 }
 
 // Message clair pour l'utilisateur à partir de la réponse d'erreur Google, afin
@@ -194,11 +268,7 @@ function explainGoogleError(httpStatus: number, rawBody: string): string {
   ) {
     return "« Places API (New) » n'est pas activée sur le projet Google Cloud de ta clé.";
   }
-  if (
-    lower.includes("resource_exhausted") ||
-    lower.includes("quota") ||
-    httpStatus === 429
-  ) {
+  if (isQuotaError(httpStatus, rawBody)) {
     return "Quota Google atteint pour aujourd'hui. Les communes déjà explorées restent consultables ; réessaie demain.";
   }
   if (lower.includes("referer") || lower.includes("referrer") || httpStatus === 403) {

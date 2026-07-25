@@ -51,6 +51,56 @@ mais jamais montrés.
 - Pour rester 100 % dans le gratuit : ~**33 `GetPlaceRequest`/jour** et
   ~166 `SearchNearby`/jour.
 
+## Suivi du quota dans l'app
+
+Avant ce changement, une ville avec beaucoup d'artisans (ex. Strasbourg)
+pouvait épuiser le quota `GetPlaceRequest` en plein milieu de la boucle de
+`refreshCommune` : les appels `Place Details` restants échouaient un par un
+(juste loggés en `console.error`), mais la fonction finissait quand même par
+marquer la commune comme "entièrement explorée" dans `commune_search_cache` —
+résultat, une liste tronquée figée pendant `CACHE_TTL_DAYS` (60 jours), sans
+aucun message d'erreur pour l'utilisateur (« rien ne s'affiche »).
+
+`/api/places` fait maintenant le suivi et la prévention suivants :
+
+- Chaque tentative de `Place Details` est journalisée dans la table
+  `google_places_quota_usage` (une ligne par tentative, réussie ou non).
+- Avant de rafraîchir une commune, l'API calcule le quota restant
+  aujourd'hui (`limite - déjà utilisé`) et **plafonne `maxResultCount` du
+  Nearby Search à ce restant** : pour une grande ville avec un quota presque
+  épuisé, on ne demande que ce qu'on peut réellement détailler, au lieu de
+  demander 20 et échouer en cours de route.
+- Si le quota est déjà à 0, Google n'est même pas appelé : message d'erreur
+  clair immédiat.
+- Une commune n'est marquée "entièrement explorée" (et donc mise en cache 60
+  jours) **que si rien n'a été tronqué par le budget restant** — sinon elle
+  reste éligible à un nouveau rafraîchissement dès que le quota se
+  régénère, avec un message "quota presque atteint" affiché à la place d'une
+  liste silencieusement incomplète. Le panneau affiche alors un bouton
+  « Charger le reste » (grisé « Quota atteint » tant que le quota du jour est
+  à 0), qui relance simplement la même recherche.
+- Ce nouveau rafraîchissement **ignore les artisans déjà en cache** pour la
+  commune (Nearby Search est quasi déterministe : mêmes lieu/rayon/types →
+  mêmes candidats) — sinon "Charger le reste" re-dépenserait le quota sur les
+  artisans déjà connus au lieu d'atteindre les nouveaux. Le plafond de 20
+  artisans par commune reste une limite dure de Google (Nearby Search ne
+  renvoie jamais plus de 20 résultats) : "Charger le reste" complète jusqu'à
+  ce plafond, il ne le dépasse jamais.
+- **Fenêtre de renouvellement** : les quotas journaliers Google Cloud (dont
+  `GetPlaceRequest`) se réinitialisent à **minuit heure Pacifique**
+  (`America/Los_Angeles`, PST/PDT selon la saison — géré via `Intl` dans
+  `src/lib/quota.ts`, pas un décalage fixe), soit environ **9h du matin,
+  heure de Paris**, hiver comme été (les changements d'heure US/UE se
+  compensent presque exactement). Ce n'est ni minuit en France, ni 24h après
+  le premier appel du jour.
+- La limite par défaut (33) est personnalisable par compte
+  (`user_metadata.google_places_daily_quota`, réglable depuis le badge de
+  quota dans l'en-tête — voir `src/components/QuotaBadge.tsx`), avec un
+  avertissement : dépasser la franchise gratuite mensuelle réelle de Google
+  peut engendrer des frais, et si la commune/les artisans ne sont pas encore
+  dans la base communautaire, chaque recherche consomme bel et bien le quota
+  du compte.
+
 ## Règles à retenir
 
 - **Ne pas remonter les quotas** tant que `/api/places` ne vérifie pas les

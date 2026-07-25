@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
 import { GithubStarButton } from "@/components/GithubStarButton";
+import { QuotaBadge } from "@/components/QuotaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, buttonVariants } from "@/components/ui/Button";
 
@@ -36,6 +37,7 @@ export function AuthHeader() {
             {/* Desktop : actions à plat */}
             <div className="hidden items-center gap-3 sm:flex">
               <span className="text-muted">{user.email}</span>
+              <QuotaBadge />
               <ApiKeyHelpButton
                 includeSetup={false}
                 label="Aide & quotas"
@@ -140,6 +142,9 @@ function AccountMenu({ email, onSignOut }: { email: string; onSignOut: () => voi
               <p className="truncate px-3 py-2 text-xs text-muted" title={email}>
                 {email}
               </p>
+              <div className="px-3 py-1">
+                <QuotaBadge />
+              </div>
               <div className="my-1 h-px bg-border" />
               <ApiKeyHelpButton
                 includeSetup={false}
