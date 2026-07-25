@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { countQuotaUsedToday, getDailyQuotaLimit } from "@/lib/quota";
+import { DEFAULT_MODE_ID, isArtisanModeId, type ArtisanModeId } from "@/lib/artisanModes";
+import { ensureSiteChecks } from "@/lib/siteCheck";
 
 // Types de métiers d'artisans recherchés. Nearby Search (New) accepte plusieurs
 // types dans un seul appel (résultats = union des types), donc pas besoin d'une
@@ -43,6 +45,8 @@ export async function GET(request: NextRequest) {
   const communeCode = searchParams.get("code");
   const lat = Number(searchParams.get("lat"));
   const lng = Number(searchParams.get("lng"));
+  const rawMode = searchParams.get("mode");
+  const mode: ArtisanModeId = rawMode && isArtisanModeId(rawMode) ? rawMode : DEFAULT_MODE_ID;
 
   if (!communeCode || Number.isNaN(lat) || Number.isNaN(lng)) {
     return NextResponse.json(
@@ -109,15 +113,47 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const { data: artisans, error } = await supabase
+  let query = supabase
     .from("artisans")
     .select("id, place_id, commune_code, display_name, national_phone_number, google_maps_uri, website_uri, category")
     .eq("commune_code", communeCode)
-    .is("website_uri", null)
     .order("display_name");
+
+  // "Sans site web" reste le seul mode filtrable directement en SQL ; les
+  // autres modes portent sur la santé du site de l'artisan (voir plus bas),
+  // donc on ne peut ici que restreindre aux artisans qui EN ONT un.
+  query = mode === "no_website" ? query.is("website_uri", null) : query.not("website_uri", "is", null);
+
+  const { data: artisansRaw, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  let artisans = artisansRaw ?? [];
+
+  if (mode !== "no_website" && artisans.length > 0) {
+    // Aucune requête Google ici : on fetch directement le site de chaque
+    // artisan, avec cache (voir src/lib/siteCheck.ts) — ne consomme pas le
+    // quota Google Places suivi plus haut.
+    await ensureSiteChecks(supabase, artisans);
+
+    const { data: checks } = await supabase
+      .from("artisan_site_checks")
+      .select("artisan_id, is_reachable, has_viewport_meta")
+      .in(
+        "artisan_id",
+        artisans.map((a) => a.id)
+      );
+    const checkByArtisanId = new Map((checks ?? []).map((c) => [c.artisan_id, c]));
+
+    artisans = artisans.filter((artisan) => {
+      const check = checkByArtisanId.get(artisan.id);
+      if (!check) return false;
+      if (mode === "site_down") return !check.is_reachable;
+      if (mode === "non_responsive") return check.is_reachable && check.has_viewport_meta === false;
+      return false;
+    });
   }
 
   const quota = {
@@ -125,7 +161,7 @@ export async function GET(request: NextRequest) {
     limit: getDailyQuotaLimit(user),
   };
 
-  return NextResponse.json({ artisans: artisans ?? [], quotaNotice, quota });
+  return NextResponse.json({ artisans, quotaNotice, quota });
 }
 
 type RefreshResult =

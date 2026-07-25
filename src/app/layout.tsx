@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/supabase/auth-context";
+import { ModeProvider } from "@/lib/modeContext";
 import { AuthHeader } from "@/components/AuthHeader";
 
 const geistSans = Geist({
@@ -55,8 +56,10 @@ export default function RootLayout({
           }}
         />
         <AuthProvider>
-          <AuthHeader />
-          <div className="min-h-0 flex-1">{children}</div>
+          <ModeProvider>
+            <AuthHeader />
+            <div className="min-h-0 flex-1">{children}</div>
+          </ModeProvider>
         </AuthProvider>
         <Analytics />
       </body>

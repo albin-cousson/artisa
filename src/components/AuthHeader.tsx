@@ -11,6 +11,7 @@ import { AccountSettingsModal } from "@/components/AccountSettingsModal";
 import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
 import { CommuneSearch } from "@/components/CommuneSearch";
 import { GithubStarButton } from "@/components/GithubStarButton";
+import { ModeSelector } from "@/components/ModeSelector";
 import { QuotaBadge } from "@/components/QuotaBadge";
 import { SettingsMenu } from "@/components/SettingsMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -41,6 +42,7 @@ export function AuthHeader() {
             {/* Desktop : actions à plat */}
             <div className="hidden items-center gap-3 sm:flex">
               <span className="text-muted">{user.email}</span>
+              <ModeSelector />
               <QuotaBadge />
               <ApiKeyHelpButton
                 includeSetup={false}
@@ -151,7 +153,8 @@ function AccountMenu({ email, onSignOut }: { email: string; onSignOut: () => voi
               <p className="truncate px-3 py-2 text-xs text-muted" title={email}>
                 {email}
               </p>
-              <div className="px-3 py-1">
+              <div className="flex flex-col gap-1.5 px-3 py-1">
+                <ModeSelector />
                 <QuotaBadge />
               </div>
               <div className="my-1 h-px bg-border" />

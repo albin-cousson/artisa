@@ -5,6 +5,8 @@ import type { Artisan, CommuneProperties } from "@/lib/types";
 import { recordViewedCommune } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
 import { notifyQuotaUpdated } from "@/lib/quota";
+import { useArtisanMode } from "@/lib/modeContext";
+import { getArtisanMode } from "@/lib/artisanModes";
 
 interface ArtisanPanelProps {
   commune: CommuneProperties;
@@ -32,6 +34,8 @@ export function ArtisanPanel({
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [mobileOnly, setMobileOnly] = useState(false);
   const [query, setQuery] = useState("");
+  const { mode } = useArtisanMode();
+  const modeDef = getArtisanMode(mode);
 
   // Liste affichée : filtrée par nom recherché et/ou aux mobiles (06/07).
   const visibleArtisans =
@@ -54,6 +58,7 @@ export function ArtisanPanel({
       code: commune.code,
       lat: String(commune.lat),
       lng: String(commune.lng),
+      mode,
     });
 
     fetch(`/api/places?${params.toString()}`)
@@ -71,10 +76,10 @@ export function ArtisanPanel({
       .catch(() =>
         setError("Impossible de charger les artisans. Vérifie ta connexion, puis rouvre la commune."),
       );
-  }, [commune.code, commune.lat, commune.lng]);
+  }, [commune.code, commune.lat, commune.lng, mode]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch initial : les setState passent le state en "chargement" avant la réponse réseau
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- (re)fetch : les setState passent le state en "chargement" avant la réponse réseau, y compris quand le mode change
     loadArtisans();
   }, [loadArtisans]);
 
@@ -109,7 +114,9 @@ export function ArtisanPanel({
 
       <div className="flex flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-muted">Artisans sans site web repérés :</p>
+          <p className="text-sm text-muted">
+            <span aria-hidden="true">{modeDef.icon}</span> Artisans « {modeDef.label} » repérés :
+          </p>
           {artisans && artisans.length > 0 && (
             <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
               <input
@@ -142,7 +149,7 @@ export function ArtisanPanel({
 
         {artisans?.length === 0 && (
           <p className="text-sm text-muted">
-            Aucun artisan sans site web ici pour le moment. Tente une commune voisine.
+            Aucun artisan « {modeDef.label} » ici pour le moment. Tente une commune voisine.
           </p>
         )}
 

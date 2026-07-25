@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { listViewedCommunes, removeViewedCommune } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
 import { normalizeForSearch } from "@/lib/text";
+import { useArtisanMode } from "@/lib/modeContext";
+import { getArtisanMode } from "@/lib/artisanModes";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 
@@ -41,6 +43,16 @@ export function UnlockedArtisansMenu({
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [communeQuery, setCommuneQuery] = useState("");
   const [artisanQuery, setArtisanQuery] = useState("");
+  const { mode } = useArtisanMode();
+
+  // Les artisans déjà chargés correspondent au mode précédent : on les vide
+  // et referme la commune dépliée, plutôt que d'afficher des résultats
+  // périmés tant qu'on ne re-clique pas dessus.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resynchronise le cache local avec un changement externe (le mode global), pas une dérivation de state interne
+    setArtisansByCommune({});
+    setExpandedCode(null);
+  }, [mode]);
 
   const visibleCommunes = communeQuery.trim()
     ? communes.filter((c) => normalizeForSearch(c.nom).includes(normalizeForSearch(communeQuery.trim())))
@@ -97,6 +109,7 @@ export function UnlockedArtisansMenu({
       code: commune.code,
       lat: String(commune.lat),
       lng: String(commune.lng),
+      mode,
     });
 
     fetch(`/api/places?${params.toString()}`)
@@ -121,7 +134,8 @@ export function UnlockedArtisansMenu({
         onClick={toggleMenu}
         className="focus-ring flex w-full items-center justify-between rounded-lg border border-border bg-bg/95 px-3 py-2 text-sm font-medium text-ink shadow-[var(--shadow-popover)] backdrop-blur hover:bg-bg coarse:min-h-11"
       >
-        Mes artisans{open && communes.length > 0 ? ` (${communes.length})` : ""}
+        <span aria-hidden="true">{getArtisanMode(mode).icon}</span> Mes artisans « {getArtisanMode(mode).label} »
+        {open && communes.length > 0 ? ` (${communes.length})` : ""}
         <span className="text-muted">{open ? "▲" : "▼"}</span>
       </button>
 
@@ -224,7 +238,11 @@ export function UnlockedArtisansMenu({
                         });
 
                         if (artisans.length === 0) {
-                          return <p className="text-xs text-muted">Aucun artisan sans site web ici.</p>;
+                          return (
+                            <p className="text-xs text-muted">
+                              Aucun artisan « {getArtisanMode(mode).label} » ici.
+                            </p>
+                          );
                         }
                         if (shown.length === 0) {
                           return <p className="text-xs text-muted">Aucun artisan ne correspond à ce filtre.</p>;
