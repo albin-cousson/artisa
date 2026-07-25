@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Map,
   Source,
@@ -17,6 +17,7 @@ import { UnlockedArtisansMenu } from "@/components/UnlockedArtisansMenu";
 import { LoginPromptModal } from "@/components/LoginPromptModal";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { useCalledArtisans } from "@/lib/useCalledArtisans";
+import { COMMUNE_SELECTED_EVENT } from "@/lib/communeEvents";
 
 const clusterLayer: LayerProps = {
   id: "clusters",
@@ -107,6 +108,23 @@ export function CommunesMap() {
     },
     [user]
   );
+
+  // Le champ de recherche vit dans AuthHeader (zone stable, jamais recouverte
+  // par le panneau latéral ni par "Mes artisans"), donc il communique via un
+  // event window plutôt qu'une prop — voir src/lib/communeEvents.ts. On
+  // recentre seulement la carte : ne pas ouvrir le panneau ni lancer
+  // /api/places automatiquement, pour éviter de gaspiller du quota Google sur
+  // une simple exploration ou une faute de frappe. Il faut ensuite cliquer le
+  // point (maintenant dé-clusterisé) pour l'ouvrir.
+  useEffect(() => {
+    function onCommuneSelected(e: Event) {
+      const commune = (e as CustomEvent<CommuneProperties>).detail;
+      const map = mapRef.current?.getMap();
+      if (map) map.easeTo({ center: [commune.lng, commune.lat], zoom: 12, duration: 500 });
+    }
+    window.addEventListener(COMMUNE_SELECTED_EVENT, onCommuneSelected);
+    return () => window.removeEventListener(COMMUNE_SELECTED_EVENT, onCommuneSelected);
+  }, []);
 
   const onMouseEnter = useCallback(() => {
     const map = mapRef.current?.getMap();

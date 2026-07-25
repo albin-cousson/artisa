@@ -31,19 +31,24 @@ export function ArtisanPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [mobileOnly, setMobileOnly] = useState(false);
+  const [query, setQuery] = useState("");
 
-  // Liste affichée : filtrée aux mobiles (06/07) quand la case est cochée.
+  // Liste affichée : filtrée par nom recherché et/ou aux mobiles (06/07).
   const visibleArtisans =
     artisans === null
       ? null
-      : mobileOnly
-        ? artisans.filter((artisan) => isMobilePhone(artisan.national_phone_number))
-        : artisans;
+      : artisans.filter((artisan) => {
+          if (mobileOnly && !isMobilePhone(artisan.national_phone_number)) return false;
+          if (query.trim() && !artisan.display_name.toLowerCase().includes(query.trim().toLowerCase()))
+            return false;
+          return true;
+        });
 
   const loadArtisans = useCallback(() => {
     setArtisans(null);
     setError(null);
     setNotice(null);
+    setQuery("");
 
     const params = new URLSearchParams({
       code: commune.code,
@@ -117,6 +122,16 @@ export function ArtisanPanel({
             </label>
           )}
         </div>
+
+        {artisans && artisans.length > 0 && (
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Chercher un artisan par nom…"
+            className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+          />
+        )}
 
         {error && <p className="text-sm text-danger">{error}</p>}
         {!error && notice && <p className="text-sm text-accent">{notice}</p>}

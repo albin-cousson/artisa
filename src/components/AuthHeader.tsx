@@ -6,7 +6,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
+import { notifyCommuneSelected } from "@/lib/communeEvents";
 import { ApiKeyHelpButton } from "@/components/ApiKeyHelpModal";
+import { CommuneSearch } from "@/components/CommuneSearch";
 import { GithubStarButton } from "@/components/GithubStarButton";
 import { QuotaBadge } from "@/components/QuotaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -28,9 +30,9 @@ export function AuthHeader() {
   }
 
   return (
-    <header className="relative z-20 flex items-center justify-between border-b border-border bg-bg/90 py-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur">
-      <span className="text-lg font-semibold tracking-tight">Artisa</span>
-      <div className="flex items-center gap-2 text-sm sm:gap-3">
+    <header className="relative z-20 flex flex-wrap items-center justify-between gap-y-2 border-b border-border bg-bg/90 py-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur">
+      <span className="shrink-0 text-lg font-semibold tracking-tight">Artisa</span>
+      <div className="flex shrink-0 items-center gap-2 text-sm sm:order-2 sm:gap-3">
         <ThemeToggle />
         {loading ? null : user ? (
           <>
@@ -63,6 +65,9 @@ export function AuthHeader() {
             </Link>
           </>
         )}
+      </div>
+      <div className="order-1 mt-1 w-full sm:mx-4 sm:mt-0 sm:w-auto sm:max-w-xs sm:flex-1">
+        <CommuneSearch onSelect={notifyCommuneSelected} />
       </div>
     </header>
   );

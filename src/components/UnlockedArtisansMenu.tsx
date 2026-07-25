@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { listViewedCommunes } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
+import { normalizeForSearch } from "@/lib/text";
 
 // Les artisans d'une commune dépliée : chargés à la demande depuis /api/places
 // (déjà cachés côté serveur, donc pas de nouvel appel Google) — tous ceux sans
@@ -31,6 +32,12 @@ export function UnlockedArtisansMenu({
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [artisansByCommune, setArtisansByCommune] = useState<Record<string, CommuneArtisans>>({});
   const [mobileOnly, setMobileOnly] = useState(false);
+  const [communeQuery, setCommuneQuery] = useState("");
+  const [artisanQuery, setArtisanQuery] = useState("");
+
+  const visibleCommunes = communeQuery.trim()
+    ? communes.filter((c) => normalizeForSearch(c.nom).includes(normalizeForSearch(communeQuery.trim())))
+    : communes;
 
   function toggleMenu() {
     // La liste est relue à chaque ouverture : de nouvelles communes ont pu
@@ -40,6 +47,8 @@ export function UnlockedArtisansMenu({
   }
 
   function toggleCommune(commune: CommuneProperties) {
+    setArtisanQuery("");
+
     if (expandedCode === commune.code) {
       setExpandedCode(null);
       return;
@@ -93,18 +102,31 @@ export function UnlockedArtisansMenu({
           )}
 
           {communes.length > 0 && (
-            <label className="sticky top-0 flex items-center gap-1.5 border-b border-border bg-bg/95 px-3 py-2 text-xs text-muted backdrop-blur">
+            <div className="sticky top-0 flex flex-col gap-2 border-b border-border bg-bg/95 p-3 backdrop-blur">
               <input
-                type="checkbox"
-                className="accent-[var(--primary-strong)]"
-                checked={mobileOnly}
-                onChange={(e) => setMobileOnly(e.target.checked)}
+                type="search"
+                value={communeQuery}
+                onChange={(e) => setCommuneQuery(e.target.value)}
+                placeholder="Chercher dans mes communes…"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none"
               />
-              Mobiles uniquement (06/07)
-            </label>
+              <label className="flex items-center gap-1.5 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--primary-strong)]"
+                  checked={mobileOnly}
+                  onChange={(e) => setMobileOnly(e.target.checked)}
+                />
+                Mobiles uniquement (06/07)
+              </label>
+            </div>
           )}
 
-          {communes.map((commune) => {
+          {communes.length > 0 && visibleCommunes.length === 0 && (
+            <p className="p-3 text-sm text-muted">Aucune commune ne correspond à cette recherche.</p>
+          )}
+
+          {visibleCommunes.map((commune) => {
             const artisans = artisansByCommune[commune.code];
             const expanded = expandedCode === commune.code;
 
@@ -134,17 +156,32 @@ export function UnlockedArtisansMenu({
                     {artisans === "error" && (
                       <p className="text-xs text-danger">Impossible de charger les artisans.</p>
                     )}
+                    {Array.isArray(artisans) && artisans.length > 0 && (
+                      <input
+                        type="search"
+                        value={artisanQuery}
+                        onChange={(e) => setArtisanQuery(e.target.value)}
+                        placeholder="Chercher un artisan par nom…"
+                        className="mb-1 w-full rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+                      />
+                    )}
                     {Array.isArray(artisans) &&
                       (() => {
-                        const shown = mobileOnly
-                          ? artisans.filter((a) => isMobilePhone(a.national_phone_number))
-                          : artisans;
+                        const shown = artisans.filter((a) => {
+                          if (mobileOnly && !isMobilePhone(a.national_phone_number)) return false;
+                          if (
+                            artisanQuery.trim() &&
+                            !normalizeForSearch(a.display_name).includes(normalizeForSearch(artisanQuery.trim()))
+                          )
+                            return false;
+                          return true;
+                        });
 
                         if (artisans.length === 0) {
                           return <p className="text-xs text-muted">Aucun artisan sans site web ici.</p>;
                         }
                         if (shown.length === 0) {
-                          return <p className="text-xs text-muted">Aucun mobile (06/07) ici.</p>;
+                          return <p className="text-xs text-muted">Aucun artisan ne correspond à ce filtre.</p>;
                         }
                         return shown.map((artisan) => {
                           const called = calledIds.has(artisan.id);
