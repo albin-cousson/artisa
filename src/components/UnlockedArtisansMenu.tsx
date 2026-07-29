@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { listViewedCommunes, removeViewedCommune } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
-import { normalizeForSearch } from "@/lib/text";
+import { capitalize, normalizeForSearch } from "@/lib/text";
 import { useArtisanMode } from "@/lib/modeContext";
 import { getArtisanMode } from "@/lib/artisanModes";
 import { Modal } from "@/components/ui/Modal";
@@ -298,6 +298,9 @@ export function UnlockedArtisansMenu({
                                     }
                                   >
                                     {artisan.display_name}
+                                    {artisan.category && (
+                                      <span className="font-normal text-muted"> · {capitalize(artisan.category)}</span>
+                                    )}
                                   </span>
                                 </label>
                                 <button

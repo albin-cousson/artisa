@@ -8,6 +8,7 @@ import { notifyQuotaUpdated } from "@/lib/quota";
 import { useArtisanMode } from "@/lib/modeContext";
 import { getArtisanMode } from "@/lib/artisanModes";
 import { getSignalSummary } from "@/lib/artisanDiagnostics";
+import { capitalize } from "@/lib/text";
 import { cn } from "@/lib/cn";
 
 interface ArtisanPanelProps {
@@ -187,7 +188,12 @@ export function ArtisanPanel({
               }
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="font-semibold">{artisan.display_name}</span>
+                <span className="font-semibold">
+                  {artisan.display_name}
+                  {artisan.category && (
+                    <span className="ml-1.5 font-normal text-muted">· {capitalize(artisan.category)}</span>
+                  )}
+                </span>
                 {called && (
                   <span className="shrink-0 rounded-full bg-success-wash px-2 py-0.5 text-xs font-medium text-success-ink">
                     Déjà appelé
