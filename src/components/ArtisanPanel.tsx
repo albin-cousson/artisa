@@ -7,7 +7,7 @@ import { isMobilePhone } from "@/lib/phone";
 import { notifyQuotaUpdated } from "@/lib/quota";
 import { useArtisanMode } from "@/lib/modeContext";
 import { getArtisanMode } from "@/lib/artisanModes";
-import { getSignalSummary, getTargetReason } from "@/lib/artisanDiagnostics";
+import { getSignalSummary } from "@/lib/artisanDiagnostics";
 import { cn } from "@/lib/cn";
 
 interface ArtisanPanelProps {
@@ -194,8 +194,6 @@ export function ArtisanPanel({
                   </span>
                 )}
               </div>
-
-              <p className="mt-1 text-xs text-muted">{getTargetReason(mode, artisan)}</p>
 
               <div className="mt-1 flex flex-col gap-0.5 text-sm">
                 {artisan.national_phone_number && (

@@ -7,7 +7,6 @@ import { isMobilePhone } from "@/lib/phone";
 import { normalizeForSearch } from "@/lib/text";
 import { useArtisanMode } from "@/lib/modeContext";
 import { getArtisanMode } from "@/lib/artisanModes";
-import { getTargetReason } from "@/lib/artisanDiagnostics";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 
@@ -316,7 +315,6 @@ export function UnlockedArtisansMenu({
                                   Retirer
                                 </button>
                               </div>
-                              <p className="pl-6 text-[11px] text-muted">{getTargetReason(mode, artisan)}</p>
                               <div className="flex gap-3 pl-6">
                                 {artisan.national_phone_number && (
                                   <a
