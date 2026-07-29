@@ -50,7 +50,6 @@ export function AuthHeader() {
                 buttonClassName={SECONDARY}
               />
               <SettingsMenu buttonClassName={SECONDARY} />
-              <GithubStarButton buttonClassName={SECONDARY} className="text-sm" />
               <Button variant="secondary" size="sm" onClick={handleSignOut}>
                 Se déconnecter
               </Button>

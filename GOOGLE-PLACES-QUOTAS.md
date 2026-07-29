@@ -16,40 +16,75 @@ Google.** Google n'est appelé qu'à l'ouverture d'une commune jamais explorée
 (ou dont le cache a dépassé 60 jours, `CACHE_TTL_DAYS`), par n'importe quel
 visiteur. Ensuite tout est servi depuis le cache Supabase (`artisans`).
 
-## Les deux quotas et ce qu'ils limitent
+## Le seul quota qui compte : Place Details
 
-| Quota console (valeur actuelle) | Appel dans l'app | Quand ? | Facturation |
+Depuis le passage à Text Search (New) pour la découverte (2026-07-26, voir
+`src/app/api/places/route.ts`, `TRADE_SEARCH_QUERIES`/`searchTradeCandidates`),
+il n'y a plus qu'un seul appel qui coûte réellement quelque chose :
+
+| Quota console (valeur recommandée) | Appel dans l'app | Quand ? | Facturation |
 |---|---|---|---|
-| `SearchNearbyRequest` = **25/jour** | Nearby Search (New) — trouve les IDs des artisans | **1 fois par commune** jamais cherchée (ou cache > 60 j) → 25 nouvelles communes/jour max, tous visiteurs confondus | SKU **Pro** : 5 000 gratuits/mois, puis 32 $/1000 (pas de tier moins cher même avec `FieldMask: places.id` seul) |
-| `GetPlaceRequest` = **500/jour** | Place Details (New) — nom, téléphone, site web | **1 fois par artisan**, uniquement à la première exploration de sa commune (jusqu'à 20 par commune) | SKU **Enterprise** (à cause de `nationalPhoneNumber`/`websiteUri`) : **1 000 gratuits/mois seulement**, puis 20 $/1000 |
+| `GetPlaceRequest` = **500/jour** (ou 33/jour pour un compte perso qui veut rester 100 % gratuit) | Place Details (New) — nom, téléphone, site web | **1 fois par artisan**, uniquement à la première exploration de sa commune (jusqu'à `MAX_DETAILS_PER_SEARCH` = 20 par commune) | SKU **Enterprise** (à cause de `nationalPhoneNumber`/`websiteUri`) : **1 000 gratuits/mois seulement**, puis 20 $/1000 |
 
-Les deux valeurs sont cohérentes entre elles : 25 communes × 20 détails = 500.
+La découverte (`searchTradeCandidates`, 14 requêtes Text Search en texte libre
+par commune — une par métier de `TRADE_SEARCH_QUERIES`, dont électricien,
+plombier, coiffeur, menuisier...) a son propre quota technique dans la
+console (ex. `SearchTextRequest`/jour), mais **sa facturation avec un
+FieldMask `places.id` seul est gratuite et illimitée** (tier "Text Search
+Essentials IDs Only", vérifié sur la doc tarifaire Google en juillet 2026 —
+pas encore confirmé en conditions réelles faute de clé de test). Pas besoin
+de la plafonner soi-même comme `GetPlaceRequest` : le quota par défaut de
+Google Cloud sur ce compteur est largement suffisant pour l'usage d'Artisa et
+ne coûte rien quel que soit le volume.
 
 ## Limite des 20 artisans par commune
 
-Une commune ne peut PAS avoir plus de 20 artisans dans l'app :
+Une commune n'a normalement pas plus de 20 **nouveaux** artisans détaillés par
+recherche — mais ce n'est plus une limite dure de Google comme avant :
 
-1. Nearby Search (New) renvoie **20 résultats maximum par requête** — limite
-   dure de Google, non contournable.
-2. Le code demande ce plafond (`MAX_DETAILS_PER_SEARCH = 20` dans
-   `src/app/api/places/route.ts`). C'est le principal levier de coût : chaque
-   résultat = 1 Place Details au tarif Enterprise.
+1. Chaque requête Text Search renvoie jusqu'à 20 résultats bruts (`pageSize:
+   20`) **par métier recherché**, avec pagination : Google plafonne chaque
+   requête Text Search à **3 pages, soit 60 résultats maximum par métier**
+   (limite propre à l'API, pas à Artisa). `search_progress`
+   (`commune_search_cache`, migration 0006) retient par métier le
+   `nextPageToken` de la page en cours pour cette commune : quand la page
+   déjà connue ne renvoie plus aucun candidat nouveau, `refreshCommune` avance
+   automatiquement à la page suivante avant de s'arrêter. Avec 14 métiers, la
+   découverte peut donc remonter jusqu'à 14 × 60 = 840 candidats bruts avant
+   dédoublonnage par `place_id` — un plafond largement théorique (peu de
+   communes ont 60 coiffeurs ET 60 plombiers etc.), mais qui borne le pire cas.
+2. C'est `MAX_DETAILS_PER_SEARCH = 20` (`src/app/api/places/route.ts`) qui
+   plafonne volontairement le nombre de **Place Details** (l'étape payante)
+   par *appel* à `refreshCommune` — un ouverture de commune ou un clic sur
+   « Charger le reste » —, quel que soit le nombre de candidats trouvés. Ce
+   n'est **pas** un plafond "par jour" : c'est le quota journalier du compte
+   (33 par défaut, personnalisable, voir plus bas) qui joue ce rôle, en
+   bornant `detailsBudget = min(MAX_DETAILS_PER_SEARCH, quota restant
+   aujourd'hui)`. Une commune à 60+ candidats pour un même métier ne se
+   complète donc pas automatiquement "jour après jour" : chaque nouveau lot
+   (jusqu'à 20, ou moins si le quota du jour est presque épuisé) exige un
+   nouveau clic sur « Charger le reste », qui peut avoir lieu plusieurs fois
+   le même jour tant que le quota journalier n'est pas atteint.
 
-Pour une commune à 21+ artisans dans le rayon de 5 km : Google choisit les 20
-plus pertinents, les autres n'existent jamais dans l'app (ce n'est pas « un
-détail manquant », l'artisan n'est pas listé du tout). En pratique une commune
-affiche moins de 20 fiches, car les artisans AVEC site web sont mis en cache
-mais jamais montrés.
+Ce plafond est donc maintenant un choix de coût pur, pas une contrainte
+technique de Google : le relever ne demande qu'à ajuster cette constante (et
+le budget quota en face). « Charger le reste » relance la même recherche pour
+rattraper les candidats déjà découverts mais pas encore détaillés (voir plus
+bas), jusqu'à épuisement réel des nouveaux candidats de la commune.
 
 ## Coûts concrets
 
-- Une commune jamais explorée coûte au pire : 1 Nearby (Pro) + 20 Details
-  (Enterprise) ≈ **0,43 $** hors franchise gratuite.
+- Une commune jamais explorée coûte au pire : **0 $ de découverte** (14 Text
+  Search Essentials IDs Only, gratuites/illimitées) + 20 Details (Enterprise)
+  ≈ **0,40 $** hors franchise gratuite — légèrement moins qu'avant (0,43 $),
+  et sur bien plus de métiers.
 - À plein régime avec les quotas actuels : 500 Details/jour → les 1 000
   gratuits/mois sont consommés **en 2 jours**, puis ~20 $/1000 → jusqu'à
-  ~280 $/mois si les quotas sont saturés tous les jours.
-- Pour rester 100 % dans le gratuit : ~**33 `GetPlaceRequest`/jour** et
-  ~166 `SearchNearby`/jour.
+  ~280 $/mois si les quotas sont saturés tous les jours (inchangé : ce chiffre
+  n'a jamais dépendu de la découverte, seulement de Place Details).
+- Pour rester 100 % dans le gratuit : ~**33 `GetPlaceRequest`/jour** suffit —
+  plus besoin de coordonner une deuxième valeur pour la découverte, elle ne
+  coûte plus rien à aucun volume.
 
 ## Suivi du quota dans l'app
 
@@ -66,26 +101,30 @@ aucun message d'erreur pour l'utilisateur (« rien ne s'affiche »).
 - Chaque tentative de `Place Details` est journalisée dans la table
   `google_places_quota_usage` (une ligne par tentative, réussie ou non).
 - Avant de rafraîchir une commune, l'API calcule le quota restant
-  aujourd'hui (`limite - déjà utilisé`) et **plafonne `maxResultCount` du
-  Nearby Search à ce restant** : pour une grande ville avec un quota presque
-  épuisé, on ne demande que ce qu'on peut réellement détailler, au lieu de
-  demander 20 et échouer en cours de route.
+  aujourd'hui (`limite - déjà utilisé`) et l'utilise comme **budget explicite
+  dans la boucle Place Details** (`detailsBudget = min(MAX_DETAILS_PER_SEARCH,
+  quota restant)`, la boucle s'arrête dès que ce budget est atteint) : pour
+  une grande ville avec un quota presque épuisé, on ne détaille que ce qu'on
+  peut réellement se permettre, au lieu d'échouer en cours de route. La
+  découverte (Text Search) n'est plus concernée par ce plafond puisqu'elle ne
+  coûte rien.
 - Si le quota est déjà à 0, Google n'est même pas appelé : message d'erreur
   clair immédiat.
 - Une commune n'est marquée "entièrement explorée" (et donc mise en cache 60
-  jours) **que si rien n'a été tronqué par le budget restant** — sinon elle
-  reste éligible à un nouveau rafraîchissement dès que le quota se
-  régénère, avec un message "quota presque atteint" affiché à la place d'une
-  liste silencieusement incomplète. Le panneau affiche alors un bouton
-  « Charger le reste » (grisé « Quota atteint » tant que le quota du jour est
-  à 0), qui relance simplement la même recherche.
+  jours) **que si chaque nouveau candidat détecté a bien été traité**
+  (`fetchedCount === newCandidates.length`) — sinon elle reste éligible à un
+  nouveau rafraîchissement dès que le quota se régénère, avec un message
+  "quota presque atteint" affiché à la place d'une liste silencieusement
+  incomplète. Le panneau affiche alors un bouton « Charger le reste » (grisé
+  « Quota atteint » tant que le quota du jour est à 0), qui relance simplement
+  la même recherche.
 - Ce nouveau rafraîchissement **ignore les artisans déjà en cache** pour la
-  commune (Nearby Search est quasi déterministe : mêmes lieu/rayon/types →
-  mêmes candidats) — sinon "Charger le reste" re-dépenserait le quota sur les
-  artisans déjà connus au lieu d'atteindre les nouveaux. Le plafond de 20
-  artisans par commune reste une limite dure de Google (Nearby Search ne
-  renvoie jamais plus de 20 résultats) : "Charger le reste" complète jusqu'à
-  ce plafond, il ne le dépasse jamais.
+  commune (Text Search reste quasi déterministe pour une même requête/lieu) —
+  sinon "Charger le reste" re-dépenserait le quota sur les artisans déjà
+  connus au lieu d'atteindre les nouveaux. Il n'y a plus de plafond Google dur
+  à 20 par commune (voir "Limite des 20 artisans par commune" plus haut) :
+  "Charger le reste" complète jusqu'à épuisement réel des nouveaux candidats,
+  au rythme du budget quota disponible chaque jour.
 - **Fenêtre de renouvellement** : les quotas journaliers Google Cloud (dont
   `GetPlaceRequest`) se réinitialisent à **minuit heure Pacifique**
   (`America/Los_Angeles`, PST/PDT selon la saison — géré via `Intl` dans
@@ -103,12 +142,10 @@ aucun message d'erreur pour l'utilisateur (« rien ne s'affiche »).
 
 ## Règles à retenir
 
-- **Ne pas remonter les quotas** tant que `/api/places` ne vérifie pas les
-  déblocages côté serveur : l'ouverture d'une commune étant gratuite pour
-  l'utilisateur, les quotas journaliers sont aujourd'hui le SEUL frein à la
-  dépense Google.
-- Le paywall (10 artisans gratuits, +10 par 0,99 €) ne borne pas les coûts
-  Google : il monétise, il ne protège pas. Coût pire cas d'une commune
-  (~0,43 $) vs 0,99 € les 10 artisans → unit economics à surveiller.
+- Il n'y a plus de paywall (retiré du produit, voir `CLAUDE.md`) : une fois
+  connecté, tous les artisans d'une commune sont visibles immédiatement, sans
+  lien avec les quotas Google. Les quotas journaliers restent donc le SEUL
+  frein à la dépense Google, indépendamment de l'usage produit — ne pas les
+  remonter à la légère.
 - Baisser `MAX_DETAILS_PER_SEARCH` réduit directement le coût par commune
   (au prix de fiches en moins).

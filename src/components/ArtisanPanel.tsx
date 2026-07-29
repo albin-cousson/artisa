@@ -7,6 +7,8 @@ import { isMobilePhone } from "@/lib/phone";
 import { notifyQuotaUpdated } from "@/lib/quota";
 import { useArtisanMode } from "@/lib/modeContext";
 import { getArtisanMode } from "@/lib/artisanModes";
+import { getSignalSummary, getTargetReason } from "@/lib/artisanDiagnostics";
+import { cn } from "@/lib/cn";
 
 interface ArtisanPanelProps {
   commune: CommuneProperties;
@@ -34,6 +36,7 @@ export function ArtisanPanel({
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [mobileOnly, setMobileOnly] = useState(false);
   const [query, setQuery] = useState("");
+  const [expandedDiagnosticId, setExpandedDiagnosticId] = useState<string | null>(null);
   const { mode } = useArtisanMode();
   const modeDef = getArtisanMode(mode);
 
@@ -140,7 +143,18 @@ export function ArtisanPanel({
           />
         )}
 
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-danger/30 bg-bg p-3">
+            <p className="text-sm text-danger">{error}</p>
+            <button
+              type="button"
+              onClick={loadArtisans}
+              className="focus-ring shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-ink/5"
+            >
+              Réessayer
+            </button>
+          </div>
+        )}
         {!error && notice && <p className="text-sm text-accent">{notice}</p>}
 
         {!error && artisans === null && (
@@ -161,6 +175,8 @@ export function ArtisanPanel({
 
         {visibleArtisans?.map((artisan) => {
           const called = calledIds.has(artisan.id);
+          const diagnosticOpen = expandedDiagnosticId === artisan.id;
+          const signals = artisan.siteCheck ? getSignalSummary(artisan.siteCheck) : null;
           return (
             <div
               key={artisan.id}
@@ -178,6 +194,8 @@ export function ArtisanPanel({
                   </span>
                 )}
               </div>
+
+              <p className="mt-1 text-xs text-muted">{getTargetReason(mode, artisan)}</p>
 
               <div className="mt-1 flex flex-col gap-0.5 text-sm">
                 {artisan.national_phone_number && (
@@ -199,6 +217,36 @@ export function ArtisanPanel({
                   </a>
                 )}
               </div>
+
+              {signals && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedDiagnosticId(diagnosticOpen ? null : artisan.id)}
+                  className="focus-ring mt-1.5 text-xs font-medium text-accent hover:underline"
+                >
+                  {diagnosticOpen ? "Masquer le détail ▲" : "Voir le détail du diagnostic ▼"}
+                </button>
+              )}
+
+              {signals && diagnosticOpen && (
+                <ul className="mt-1.5 flex flex-col gap-1 rounded-md border border-border bg-bg p-2">
+                  {signals.map((signal) => (
+                    <li key={signal.key} className="flex items-center gap-1.5 text-xs">
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          signal.status === "ok" && "text-success-ink",
+                          signal.status === "issue" && "text-danger",
+                          signal.status === "unknown" && "text-muted",
+                        )}
+                      >
+                        {signal.status === "ok" ? "✓" : signal.status === "issue" ? "✗" : "?"}
+                      </span>
+                      <span className="text-ink">{signal.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
               <label className="mt-2 flex items-center gap-1.5 text-xs text-muted">
                 <input

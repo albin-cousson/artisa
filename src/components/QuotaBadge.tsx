@@ -42,7 +42,7 @@ export function QuotaBadge({ className }: { className?: string }) {
         onClick={() => setOpen(true)}
         title="Quota Google Places restant aujourd'hui"
         className={cn(
-          "focus-ring inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium tabular",
+          "focus-ring inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium tabular",
           remaining === 0 ? "border-danger/30 text-danger" : "text-muted hover:text-ink",
           className,
         )}

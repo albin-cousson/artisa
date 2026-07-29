@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ARTISAN_MODES } from "@/lib/artisanModes";
+import { ARTISAN_MODES, RELIABILITY_INFO, type ArtisanModeDef, type ArtisanModeId } from "@/lib/artisanModes";
 import { useArtisanMode } from "@/lib/modeContext";
 import { cn } from "@/lib/cn";
+
+const PRIMARY_MODES = ARTISAN_MODES.filter((m) => m.tier === "primary");
+const SECONDARY_MODES = ARTISAN_MODES.filter((m) => m.tier === "secondary");
 
 /**
  * Sélecteur de mode de recherche, toujours visible : le bouton lui-même sert
@@ -72,33 +75,83 @@ export function ModeSelector({ buttonClassName }: { buttonClassName?: string }) 
             <div
               role="menu"
               style={{ top: anchor.top, right: anchor.right }}
-              className="fixed z-50 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-bg p-1 shadow-[var(--shadow-popover)]"
+              className="fixed z-50 max-h-[70vh] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-border bg-bg p-1 shadow-[var(--shadow-popover)]"
             >
-              {ARTISAN_MODES.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={m.id === mode}
-                  onClick={() => {
-                    setMode(m.id);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "focus-ring flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-ink/5",
-                    m.id === mode && "bg-primary-wash/60",
-                  )}
-                >
-                  <span className="text-sm font-medium text-ink">
-                    <span aria-hidden="true">{m.icon}</span> {m.label}
+              <p className="px-3 pb-2 pt-1.5 text-xs text-muted">
+                Fiabilité :{" "}
+                {(["high", "medium", "low"] as const).map((level, i) => (
+                  <span key={level}>
+                    {i > 0 && " · "}
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 py-0.5 text-xs font-medium",
+                        RELIABILITY_INFO[level].pillClassName,
+                      )}
+                    >
+                      {RELIABILITY_INFO[level].pillLabel}
+                    </span>
                   </span>
-                  <span className="text-xs text-muted">{m.description}</span>
-                </button>
+                ))}
+              </p>
+
+              {PRIMARY_MODES.map((m) => (
+                <ModeItem key={m.id} mode={m} active={m.id === mode} onSelect={setMode} onClose={() => setOpen(false)} />
+              ))}
+
+              <p className="mt-1 border-t border-border px-3 pb-1 pt-2 text-xs font-medium text-muted">
+                Signaux techniques
+              </p>
+              {SECONDARY_MODES.map((m) => (
+                <ModeItem key={m.id} mode={m} active={m.id === mode} onSelect={setMode} onClose={() => setOpen(false)} />
               ))}
             </div>
           </>,
           document.body,
         )}
     </>
+  );
+}
+
+function ModeItem({
+  mode,
+  active,
+  onSelect,
+  onClose,
+}: {
+  mode: ArtisanModeDef;
+  active: boolean;
+  onSelect: (id: ArtisanModeId) => void;
+  onClose: () => void;
+}) {
+  const reliability = RELIABILITY_INFO[mode.reliability];
+
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={active}
+      onClick={() => {
+        onSelect(mode.id as ArtisanModeId);
+        onClose();
+      }}
+      className={cn(
+        "focus-ring flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-ink/5",
+        active && "bg-primary-wash/60",
+      )}
+    >
+      <span className="flex w-full items-center gap-1.5 text-sm font-medium text-ink">
+        <span aria-hidden="true">{mode.icon}</span> {mode.label}
+        <span
+          title={reliability.explanation}
+          className={cn(
+            "ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium",
+            reliability.pillClassName,
+          )}
+        >
+          {reliability.pillLabel}
+        </span>
+      </span>
+      <span className="text-xs text-muted">{mode.description}</span>
+    </button>
   );
 }

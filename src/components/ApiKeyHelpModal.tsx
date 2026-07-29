@@ -136,11 +136,18 @@ function ApiKeyHelpModal({
       <section className="mt-5">
         <h3 className="text-sm font-semibold">{quotaStep}. Régler la limite pour rester gratuit</h3>
         <p className="mt-2 text-sm text-ink">
-          Chaque fois qu&apos;un artisan est découvert pour la première fois (son nom, son
-          téléphone, son lien Google Maps), Google facture <strong>1 requête</strong>. Google
-          en offre <strong>1 000 gratuites par mois</strong>, soit{" "}
-          <strong>≈ 33 par jour</strong>. Il suffit donc de dire à Google : « ne dépasse jamais
-          33 par jour » — et tu ne paieras jamais rien.
+          Artisa cherche d&apos;abord les artisans dans une quinzaine de métiers (électricien,
+          plombier, coiffeur, menuisier...) via une recherche texte libre : cette étape-là est{" "}
+          <strong>gratuite et illimitée</strong>, quel que soit le nombre de communes explorées —
+          ne t&apos;inquiète pas si tu vois ce trafic dans ta console Google Cloud, il n&apos;est
+          jamais facturé.
+        </p>
+        <p className="mt-2 text-sm text-ink">
+          Le seul appel qui coûte quelque chose vient après : chaque fois qu&apos;un artisan est
+          découvert pour la première fois, récupérer sa fiche (son nom, son téléphone, son lien
+          Google Maps) facture <strong>1 requête</strong>. Google en offre{" "}
+          <strong>1 000 gratuites par mois</strong>, soit <strong>≈ 33 par jour</strong>. Il suffit
+          donc de dire à Google : « ne dépasse jamais 33 par jour » — et tu ne paieras jamais rien.
         </p>
         <p className="mt-2 text-sm text-ink">
           Dans la console, va dans{" "}

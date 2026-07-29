@@ -1,3 +1,5 @@
+import type { SiteCheckSummary } from "@/lib/artisanDiagnostics";
+
 export interface Artisan {
   id: string;
   place_id: string;
@@ -7,6 +9,8 @@ export interface Artisan {
   google_maps_uri: string | null;
   website_uri: string | null;
   category: string | null;
+  /** Présent uniquement pour les modes autres que "no_website" (voir /api/places). */
+  siteCheck?: SiteCheckSummary;
 }
 
 export interface CommuneProperties {

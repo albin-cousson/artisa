@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AccountSettingsModal } from "@/components/AccountSettingsModal";
+import { GithubStarButton } from "@/components/GithubStarButton";
 
 const MENU_ITEM =
   "focus-ring flex w-full items-center rounded-md px-3 py-2.5 text-left text-sm text-ink transition-colors hover:bg-ink/5";
@@ -78,6 +79,7 @@ export function SettingsMenu({ buttonClassName }: { buttonClassName: string }) {
               >
                 Compte
               </button>
+              <GithubStarButton label="★ GitHub" buttonClassName={MENU_ITEM} />
             </div>
           </>,
           document.body,

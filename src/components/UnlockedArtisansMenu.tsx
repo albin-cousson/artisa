@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Artisan, CommuneProperties } from "@/lib/types";
 import { listViewedCommunes, removeViewedCommune } from "@/actions/communes";
 import { isMobilePhone } from "@/lib/phone";
 import { normalizeForSearch } from "@/lib/text";
 import { useArtisanMode } from "@/lib/modeContext";
 import { getArtisanMode } from "@/lib/artisanModes";
+import { getTargetReason } from "@/lib/artisanDiagnostics";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 
@@ -43,15 +44,31 @@ export function UnlockedArtisansMenu({
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [communeQuery, setCommuneQuery] = useState("");
   const [artisanQuery, setArtisanQuery] = useState("");
+  const [modeChangeNotice, setModeChangeNotice] = useState<string | null>(null);
   const { mode } = useArtisanMode();
+  const isFirstModeRender = useRef(true);
 
   // Les artisans déjà chargés correspondent au mode précédent : on les vide
   // et referme la commune dépliée, plutôt que d'afficher des résultats
-  // périmés tant qu'on ne re-clique pas dessus.
+  // périmés tant qu'on ne re-clique pas dessus. On prévient explicitement
+  // l'utilisateur quand ça vide quelque chose, pour ne pas donner
+  // l'impression d'une perte de données silencieuse.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- resynchronise le cache local avec un changement externe (le mode global), pas une dérivation de state interne
+    if (isFirstModeRender.current) {
+      isFirstModeRender.current = false;
+      return;
+    }
+
+    if (Object.keys(artisansByCommune).length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resynchronise le cache local avec un changement externe (le mode global), pas une dérivation de state interne
+      setModeChangeNotice("Mode changé — liste réactualisée.");
+    }
     setArtisansByCommune({});
     setExpandedCode(null);
+    // artisansByCommune volontairement absent des deps : on ne veut réagir
+    // qu'au changement de mode, pas re-déclencher ce nettoyage à chaque mise
+    // à jour du cache qu'il vient lui-même de produire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   const visibleCommunes = communeQuery.trim()
@@ -93,6 +110,7 @@ export function UnlockedArtisansMenu({
 
   function toggleCommune(commune: CommuneProperties) {
     setArtisanQuery("");
+    setModeChangeNotice(null);
 
     if (expandedCode === commune.code) {
       setExpandedCode(null);
@@ -141,6 +159,12 @@ export function UnlockedArtisansMenu({
 
       {open && (
         <div className="mt-2 max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-bg/95 text-ink shadow-[var(--shadow-popover)] backdrop-blur">
+          {modeChangeNotice && (
+            <p className="border-b border-border bg-primary-wash/40 px-3 py-2 text-xs text-ink">
+              {modeChangeNotice}
+            </p>
+          )}
+
           {communes.length === 0 && (
             <p className="p-3 text-sm text-muted">
               Aucune commune consultée pour l&apos;instant. Clique sur un point de la carte pour
@@ -292,6 +316,7 @@ export function UnlockedArtisansMenu({
                                   Retirer
                                 </button>
                               </div>
+                              <p className="pl-6 text-[11px] text-muted">{getTargetReason(mode, artisan)}</p>
                               <div className="flex gap-3 pl-6">
                                 {artisan.national_phone_number && (
                                   <a

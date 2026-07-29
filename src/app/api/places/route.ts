@@ -1,23 +1,40 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { countQuotaUsedToday, getDailyQuotaLimit } from "@/lib/quota";
-import { DEFAULT_MODE_ID, isArtisanModeId, type ArtisanModeId } from "@/lib/artisanModes";
+import {
+  DEFAULT_MODE_ID,
+  isArtisanModeId,
+  SIMPLE_MODE_CHECK_FIELDS,
+  type ArtisanModeId,
+} from "@/lib/artisanModes";
 import { ensureSiteChecks } from "@/lib/siteCheck";
+import { toSiteCheckSummary } from "@/lib/artisanDiagnostics";
 
-// Types de métiers d'artisans recherchés. Nearby Search (New) accepte plusieurs
-// types dans un seul appel (résultats = union des types), donc pas besoin d'une
-// requête par métier. À vérifier/ajuster selon la liste "Table A" actuelle de
-// la doc Google Places : https://developers.google.com/maps/documentation/places/web-service/place-types
-// "general_contractor" et "hvac_contractor" n'existent pas dans la Table A de
-// Google (Place Types (New)) : aucun type HVAC ni "contractor" générique n'y
-// figure, ce ne sont pas des noms renommés. Liste limitée à ce que Google expose.
-const ARTISAN_TYPES = [
-  "electrician",
-  "plumber",
-  "painter",
-  "roofing_contractor",
-  "locksmith",
-  "moving_company",
+// Termes de recherche libre (Text Search), plutôt que des types Nearby Search :
+// la Table A de Google (Place Types (New)) ne couvre que 6 métiers du bâtiment
+// (electrician, plumber, painter, roofing_contractor, locksmith,
+// moving_company) — ni coiffeur, ni menuisier, carreleur, maçon, plâtrier,
+// vitrier, chauffagiste... Text Search (New) accepte n'importe quelle requête
+// texte libre, sans être limité à cette liste (voir searchTradeCandidates).
+// Bonus vérifié sur la doc tarifaire Google (juillet 2026, pas encore testé en
+// conditions réelles faute de clé ici) : le FieldMask minimal "places.id"
+// facture au tier "Text Search Essentials (IDs Only)", gratuit et illimité —
+// contrairement à Nearby Search Pro ($32/1000) qui n'a pas cet équivalent.
+const TRADE_SEARCH_QUERIES = [
+  "électricien",
+  "plombier",
+  "peintre en bâtiment",
+  "couvreur",
+  "serrurier",
+  "déménageur",
+  "menuisier",
+  "carreleur",
+  "maçon",
+  "plâtrier",
+  "vitrier",
+  "chauffagiste",
+  "plaquiste",
+  "coiffeur",
 ];
 
 // Nombre de communes déjà interrogées avant de considérer le cache "frais".
@@ -28,9 +45,13 @@ const CACHE_TTL_DAYS = 60;
 // mensuel limité. Voir le rapport de scaffold pour le détail des coûts.
 const MAX_DETAILS_PER_SEARCH = 20;
 
-interface NearbySearchPlace {
+interface TextSearchPlace {
   id: string;
 }
+
+type TradeSearchResult =
+  | { ok: true; term: string; places: TextSearchPlace[]; nextPageToken: string | null }
+  | { ok: false; term: string; status: number; body: string };
 
 interface PlaceDetails {
   id: string;
@@ -77,8 +98,11 @@ export async function GET(request: NextRequest) {
     .eq("commune_code", communeCode)
     .maybeSingle();
 
+  // searched_at reste null tant que la commune n'est pas entièrement explorée
+  // (voir refreshCommune / search_progress) : une commune en cours de
+  // pagination ne doit jamais être considérée "fraîche".
   const isFresh =
-    cacheEntry &&
+    cacheEntry?.searched_at &&
     Date.now() - new Date(cacheEntry.searched_at).getTime() < CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
 
   let quotaNotice: string | null = null;
@@ -96,20 +120,20 @@ export async function GET(request: NextRequest) {
     const remaining = limit - used;
 
     if (remaining <= 0) {
-      return NextResponse.json(
-        {
-          error: `Quota Google quotidien atteint (${limit}/${limit} aujourd'hui). Les communes déjà explorées restent consultables ; réessaie après la remise à zéro, vers 9h heure de Paris (minuit en Californie).`,
-        },
-        { status: 429 }
-      );
-    }
-
-    const refresh = await refreshCommune(communeCode, lat, lng, googleApiKey, user.id, remaining);
-    if (!refresh.ok) {
-      return NextResponse.json({ error: refresh.error }, { status: 502 });
-    }
-    if (refresh.partial) {
-      quotaNotice = `Quota Google presque atteint : ${refresh.knownCount}/${MAX_DETAILS_PER_SEARCH} artisans chargés ici pour l'instant, il peut y en avoir d'autres. Reviens charger le reste dès que le quota se régénère.`;
+      // Ne bloque pas l'accès : une commune tronquée par le quota (voir
+      // refreshCommune) a déjà des artisans en cache, potentiellement
+      // pertinents pour n'importe quel mode — les modes autres que
+      // "no_website" ne consomment d'ailleurs aucun quota Google. On saute
+      // juste la tentative de nouvel appel, sans cacher ce qui existe déjà.
+      quotaNotice = `Quota Google quotidien atteint (${limit}/${limit} aujourd'hui) : les artisans déjà connus pour cette commune restent affichés, mais il peut y en avoir d'autres. Réessaie après la remise à zéro, vers 9h heure de Paris (minuit en Californie).`;
+    } else {
+      const refresh = await refreshCommune(communeCode, lat, lng, googleApiKey, user.id, remaining);
+      if (!refresh.ok) {
+        return NextResponse.json({ error: refresh.error }, { status: 502 });
+      }
+      if (refresh.partial) {
+        quotaNotice = `Quota Google presque atteint : ${refresh.knownCount}/${MAX_DETAILS_PER_SEARCH} artisans chargés ici pour l'instant, il peut y en avoir d'autres. Reviens charger le reste dès que le quota se régénère.`;
+      }
     }
   }
 
@@ -140,20 +164,32 @@ export async function GET(request: NextRequest) {
 
     const { data: checks } = await supabase
       .from("artisan_site_checks")
-      .select("artisan_id, is_reachable, has_viewport_meta")
+      .select(
+        "artisan_id, is_reachable, has_viewport_meta, is_https, has_seo_tags, has_social_links, has_booking_widget, has_contact_form, has_clickable_phone, has_ecommerce, has_chatbot, has_analytics, has_review_widget, has_obsolete_tech, http_status, error"
+      )
       .in(
         "artisan_id",
         artisans.map((a) => a.id)
       );
     const checkByArtisanId = new Map((checks ?? []).map((c) => [c.artisan_id, c]));
+    const simpleCheck = SIMPLE_MODE_CHECK_FIELDS[mode];
 
-    artisans = artisans.filter((artisan) => {
-      const check = checkByArtisanId.get(artisan.id);
-      if (!check) return false;
-      if (mode === "site_down") return !check.is_reachable;
-      if (mode === "non_responsive") return check.is_reachable && check.has_viewport_meta === false;
-      return false;
-    });
+    artisans = artisans
+      .filter((artisan) => {
+        const check = checkByArtisanId.get(artisan.id);
+        if (!check) return false;
+        if (mode === "site_down") return !check.is_reachable;
+        if (mode === "non_responsive") return check.is_reachable && check.has_viewport_meta === false;
+        if (simpleCheck) return check.is_reachable && check[simpleCheck.field] === simpleCheck.expected;
+        return false;
+      })
+      // Diagnostic complet joint à chaque artisan renvoyé, pour expliquer côté
+      // front ce qui lui manque précisément (voir src/lib/artisanDiagnostics.ts)
+      // — pas seulement pourquoi le mode actif le montre.
+      .map((artisan) => ({
+        ...artisan,
+        siteCheck: toSiteCheckSummary(checkByArtisanId.get(artisan.id)!),
+      }));
   }
 
   const quota = {
@@ -168,6 +204,52 @@ type RefreshResult =
   | { ok: true; partial: boolean; knownCount: number }
   | { ok: false; error: string };
 
+// Une requête texte libre par métier (voir TRADE_SEARCH_QUERIES), FieldMask
+// minimal pour rester sur le tier gratuit "Essentials (IDs Only)". locationBias
+// est une préférence, pas une restriction dure comme le locationRestriction de
+// Nearby Search — le rayon reste indicatif, ce qui est acceptable ici puisqu'on
+// ne s'en sert que pour prioriser des candidats proches de la commune.
+async function searchTradeCandidates(
+  term: string,
+  lat: number,
+  lng: number,
+  apiKey: string,
+  pageToken: string | null
+): Promise<TradeSearchResult> {
+  try {
+    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        // "nextPageToken" reste sur le tier gratuit Essentials (IDs Only) au
+        // même titre que "places.id" — vérifié sur la doc Google (juillet 2026).
+        "X-Goog-FieldMask": "places.id,nextPageToken",
+      },
+      body: JSON.stringify({
+        textQuery: term,
+        languageCode: "fr",
+        pageSize: 20,
+        locationBias: {
+          circle: { center: { latitude: lat, longitude: lng }, radius: 5000 },
+        },
+        // Une page suivante doit garder tous les autres paramètres identiques
+        // à la requête d'origine, sinon Google renvoie INVALID_ARGUMENT.
+        ...(pageToken ? { pageToken } : {}),
+      }),
+    });
+
+    if (!res.ok) {
+      return { ok: false, term, status: res.status, body: await res.text() };
+    }
+
+    const data = (await res.json()) as { places?: TextSearchPlace[]; nextPageToken?: string };
+    return { ok: true, term, places: data.places ?? [], nextPageToken: data.nextPageToken ?? null };
+  } catch (err) {
+    return { ok: false, term, status: 0, body: err instanceof Error ? err.message : "Erreur réseau" };
+  }
+}
+
 async function refreshCommune(
   communeCode: string,
   lat: number,
@@ -178,51 +260,91 @@ async function refreshCommune(
 ): Promise<RefreshResult> {
   const supabase = createServiceRoleClient();
 
-  // On ne demande jamais plus de candidats que le quota restant ne permet d'en
-  // détailler : mieux vaut une commune partielle et clairement signalée qu'une
-  // ville comme Strasbourg qui échoue en silence au milieu de la boucle.
-  const requestedCount = Math.min(MAX_DETAILS_PER_SEARCH, remainingQuota);
-
   try {
-    const nearbyRes = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id",
-      },
-      body: JSON.stringify({
-        includedTypes: ARTISAN_TYPES,
-        maxResultCount: requestedCount,
-        locationRestriction: {
-          circle: { center: { latitude: lat, longitude: lng }, radius: 5000 },
-        },
-      }),
-    });
-
-    if (!nearbyRes.ok) {
-      const body = await nearbyRes.text();
-      console.error("Erreur Nearby Search:", body);
-      return { ok: false, error: explainGoogleError(nearbyRes.status, body) };
-    }
-
-    const nearbyData = (await nearbyRes.json()) as { places?: NearbySearchPlace[] };
-    const candidates = nearbyData.places ?? [];
-
-    // Nearby Search est quasi déterministe (même lieu, mêmes types) : sans ce
-    // filtre, "Charger le reste" après un rechargement de quota re-dépenserait
-    // le quota sur les artisans déjà connus au lieu d'atteindre les nouveaux.
+    // Sans ce filtre, "Charger le reste" après un rechargement de quota
+    // re-dépenserait le quota sur les artisans déjà connus au lieu d'atteindre
+    // les nouveaux. Calculé AVANT la recherche : sert aussi à décider, par
+    // métier, si la page en cours est épuisée (voir ci-dessous).
     const { data: existingRows } = await supabase
       .from("artisans")
       .select("place_id")
       .eq("commune_code", communeCode);
     const existingPlaceIds = new Set((existingRows ?? []).map((row) => row.place_id));
+
+    const { data: progressRow } = await supabase
+      .from("commune_search_cache")
+      .select("search_progress")
+      .eq("commune_code", communeCode)
+      .maybeSingle();
+    const progress = (progressRow?.search_progress as Record<string, string | null> | null) ?? {};
+
+    // Par métier : si la page en cours (celle du token stocké) ne contient
+    // plus AUCUN candidat nouveau, elle est épuisée — on avance d'une page
+    // pour ce métier avant de continuer, plutôt que de re-proposer la même
+    // page vide indéfiniment (cas "50 plombiers à Paris", au-delà des 20
+    // premiers déjà tous découverts).
+    const newProgress: Record<string, string | null> = { ...progress };
+    const searchResults = await Promise.all(
+      TRADE_SEARCH_QUERIES.map(async (term) => {
+        const tokenUsed = progress[term] ?? null;
+        let result = await searchTradeCandidates(term, lat, lng, apiKey, tokenUsed);
+        if (!result.ok) return result;
+
+        const pageExhausted =
+          result.places.length > 0 && result.places.every((p) => existingPlaceIds.has(p.id));
+        if (pageExhausted && result.nextPageToken) {
+          const nextPage = await searchTradeCandidates(term, lat, lng, apiKey, result.nextPageToken);
+          if (nextPage.ok) {
+            newProgress[term] = result.nextPageToken;
+            result = nextPage;
+          }
+        } else {
+          newProgress[term] = tokenUsed;
+        }
+        return result;
+      })
+    );
+
+    // Une clé invalide/désactivée fait échouer TOUTES les recherches de la
+    // même façon : dans ce cas seulement on remonte une vraie erreur. Un échec
+    // isolé sur un seul métier (loggé ci-dessous) ne doit pas priver la commune
+    // des métiers qui, eux, ont répondu.
+    const failures = searchResults.filter(
+      (r): r is Extract<TradeSearchResult, { ok: false }> => !r.ok
+    );
+    if (failures.length === searchResults.length) {
+      console.error("Toutes les recherches Text Search ont échoué:", failures[0].body);
+      return { ok: false, error: explainGoogleError(failures[0].status, failures[0].body) };
+    }
+    for (const failure of failures) {
+      console.error(`Erreur Text Search ("${failure.term}"):`, failure.body);
+    }
+
+    // Un même établissement peut ressortir sous plusieurs métiers recherchés
+    // (ex. "maçon" et "carreleur") : on dédoublonne par place_id, en gardant le
+    // premier métier trouvé comme "category".
+    const seenPlaceIds = new Set<string>();
+    const candidates: Array<{ id: string; category: string }> = [];
+    for (const result of searchResults) {
+      if (!result.ok) continue;
+      for (const place of result.places) {
+        if (seenPlaceIds.has(place.id)) continue;
+        seenPlaceIds.add(place.id);
+        candidates.push({ id: place.id, category: result.term });
+      }
+    }
+
     const newCandidates = candidates.filter((candidate) => !existingPlaceIds.has(candidate.id));
 
+    // La recherche est désormais gratuite et illimitée : plus besoin de
+    // limiter le NOMBRE de candidats demandés à Google comme avant. Seul le
+    // détail (Place Details, payant) reste plafonné par le quota du jour.
+    const detailsBudget = Math.min(MAX_DETAILS_PER_SEARCH, remainingQuota);
     let fetchedCount = 0;
-    let quotaHitMidLoop = false;
 
     for (const candidate of newCandidates) {
+      if (fetchedCount >= detailsBudget) break;
+
       // Journalisé même en cas d'échec juste après : la tentative compte déjà
       // dans le quota Google, qu'elle réussisse ou non.
       await supabase.from("google_places_quota_usage").insert({ user_id: userId });
@@ -241,7 +363,6 @@ async function refreshCommune(
           // Le quota mesuré côté app était optimiste (autre appareil, autre
           // requête concurrente...) : on s'arrête net plutôt que d'enchaîner
           // des échecs pour chaque candidat restant.
-          quotaHitMidLoop = true;
           break;
         }
         continue;
@@ -257,6 +378,7 @@ async function refreshCommune(
           national_phone_number: details.nationalPhoneNumber ?? null,
           google_maps_uri: details.googleMapsUri ?? null,
           website_uri: details.websiteUri ?? null,
+          category: candidate.category,
           fetched_at: new Date().toISOString(),
         },
         { onConflict: "place_id" }
@@ -264,18 +386,24 @@ async function refreshCommune(
       fetchedCount++;
     }
 
-    // Si Google a renvoyé exactement le nombre demandé, il peut en exister
-    // d'autres qu'on n'a pas eu le budget d'interroger : la commune n'est PAS
-    // entièrement explorée, il ne faut donc pas la figer 60 jours dans le
-    // cache avec une liste tronquée.
-    const trimmedByBudget = requestedCount < MAX_DETAILS_PER_SEARCH && candidates.length === requestedCount;
-    const isComplete = !quotaHitMidLoop && !trimmedByBudget;
+    // Complète seulement si CHAQUE nouveau candidat a bien été traité ET que
+    // chaque métier a atteint sa dernière page (plus de nextPageToken) : sinon
+    // il reste potentiellement des artisans non découverts (budget du jour
+    // atteint, ou pagination pas encore épuisée pour un métier très demandé
+    // genre "plombier" à Paris) — la commune ne doit pas être figée 60 jours.
+    const allTermsExhausted = searchResults.every((r) => r.ok && r.nextPageToken === null);
+    const isComplete = fetchedCount === newCandidates.length && allTermsExhausted;
 
-    if (isComplete) {
-      await supabase
-        .from("commune_search_cache")
-        .upsert({ commune_code: communeCode, searched_at: new Date().toISOString() });
-    }
+    // Le progrès de pagination (search_progress) est toujours sauvegardé, que
+    // la commune soit complète ou non : c'est lui qui permet à "Charger le
+    // reste" de reprendre à la bonne page la prochaine fois plutôt que de
+    // re-demander indéfiniment le même top 20 par métier. searched_at, lui,
+    // n'est posé que si tout est vraiment fini (voir migration 0006).
+    await supabase.from("commune_search_cache").upsert({
+      commune_code: communeCode,
+      search_progress: newProgress,
+      ...(isComplete ? { searched_at: new Date().toISOString() } : {}),
+    });
 
     return { ok: true, partial: !isComplete, knownCount: existingPlaceIds.size + fetchedCount };
   } catch (err) {
