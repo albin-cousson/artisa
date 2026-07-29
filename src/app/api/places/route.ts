@@ -45,6 +45,11 @@ const CACHE_TTL_DAYS = 60;
 // mensuel limité. Voir le rapport de scaffold pour le détail des coûts.
 const MAX_DETAILS_PER_SEARCH = 20;
 
+// Limite documentée par Google pour Text Search (New) : 60 résultats maximum
+// par requête, soit 3 pages de 20 (pageSize). Au-delà, l'API n'a plus rien à
+// offrir pour ce terme, quel que soit le nombre de tentatives.
+const MAX_PAGES_PER_TERM = 3;
+
 interface TextSearchPlace {
   id: string;
 }
@@ -53,12 +58,30 @@ type TradeSearchResult =
   | { ok: true; term: string; places: TextSearchPlace[]; nextPageToken: string | null }
   | { ok: false; term: string; status: number; body: string };
 
+// Résultat agrégé pour un métier après avoir suivi la pagination live (voir
+// searchTermCandidates) : `exhausted` ne veut pas dire "aucun candidat", mais
+// "on sait qu'il n'y a rien de plus à découvrir au-delà de ce qu'on a vu" —
+// c'est ce qui détermine si la commune peut être marquée "entièrement
+// explorée" (voir isComplete dans refreshCommune).
+type TermOutcome =
+  | { ok: true; term: string; places: TextSearchPlace[]; exhausted: boolean }
+  | { ok: false; term: string; status: number; body: string };
+
 interface PlaceDetails {
   id: string;
   displayName?: { text: string };
   nationalPhoneNumber?: string;
   googleMapsUri?: string;
   websiteUri?: string;
+}
+
+// Rotation du métier par lequel commence la répartition équitable du budget
+// Place Details (voir allocateDetailsBudget) — décalée d'un cran à chaque
+// appel de refreshCommune pour cette commune, pour qu'un même petit groupe de
+// métiers ne récupère pas systématiquement les "restes" du tour 2 (voir
+// migration 0006, colonne jsonb search_progress).
+interface SearchProgress {
+  metierOffset?: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -99,8 +122,8 @@ export async function GET(request: NextRequest) {
     .maybeSingle();
 
   // searched_at reste null tant que la commune n'est pas entièrement explorée
-  // (voir refreshCommune / search_progress) : une commune en cours de
-  // pagination ne doit jamais être considérée "fraîche".
+  // (voir refreshCommune) : une commune en cours de pagination ne doit jamais
+  // être considérée "fraîche".
   const isFresh =
     cacheEntry?.searched_at &&
     Date.now() - new Date(cacheEntry.searched_at).getTime() < CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -204,11 +227,16 @@ type RefreshResult =
   | { ok: true; partial: boolean; knownCount: number }
   | { ok: false; error: string };
 
-// Une requête texte libre par métier (voir TRADE_SEARCH_QUERIES), FieldMask
-// minimal pour rester sur le tier gratuit "Essentials (IDs Only)". locationBias
-// est une préférence, pas une restriction dure comme le locationRestriction de
-// Nearby Search — le rayon reste indicatif, ce qui est acceptable ici puisqu'on
-// ne s'en sert que pour prioriser des candidats proches de la commune.
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Une page d'une requête texte libre pour un métier (voir TRADE_SEARCH_QUERIES),
+// FieldMask minimal pour rester sur le tier gratuit "Essentials (IDs Only)".
+// locationBias est une préférence, pas une restriction dure comme le
+// locationRestriction de Nearby Search — le rayon reste indicatif, ce qui est
+// acceptable ici puisqu'on ne s'en sert que pour prioriser des candidats
+// proches de la commune.
 async function searchTradeCandidates(
   term: string,
   lat: number,
@@ -250,6 +278,92 @@ async function searchTradeCandidates(
   }
 }
 
+// Un `pageToken` fraîchement émis peut occasionnellement ne pas être encore
+// "prêt" côté serveur Google (comportement documenté par la communauté sur
+// l'ancienne Places API, non confirmé pour Text Search (New), mais sans coût
+// à se prémunir) : un seul retry après un court délai avant d'abandonner,
+// plutôt qu'un sleep systématique qui ralentirait chaque page suivante.
+async function searchTradeCandidatesWithRetry(
+  term: string,
+  lat: number,
+  lng: number,
+  apiKey: string,
+  pageToken: string | null
+): Promise<TradeSearchResult> {
+  const first = await searchTradeCandidates(term, lat, lng, apiKey, pageToken);
+  if (first.ok || !pageToken) return first;
+  await sleep(2000);
+  return searchTradeCandidates(term, lat, lng, apiKey, pageToken);
+}
+
+// Pagine EN LIVE, dans la même exécution de refreshCommune, jusqu'à trouver au
+// moins un candidat pas encore dans `existingPlaceIds`, ou jusqu'à épuiser les
+// `MAX_PAGES_PER_TERM` pages disponibles pour ce métier. Le `nextPageToken`
+// n'est jamais persisté au-delà de cet appel : la doc Google indique que "the
+// list of places returned is not guaranteed to be consistent for identical
+// requests", et un token réutilisé un autre jour a de bonnes chances d'être
+// expiré — le seul mécanisme de reprise entre deux appels HTTP séparés est le
+// dédoublonnage par place_id (existingPlaceIds), pas la position de pagination.
+async function searchTermCandidates(
+  term: string,
+  lat: number,
+  lng: number,
+  apiKey: string,
+  existingPlaceIds: Set<string>
+): Promise<TermOutcome> {
+  let pageToken: string | null = null;
+
+  for (let page = 1; page <= MAX_PAGES_PER_TERM; page++) {
+    const result = await searchTradeCandidatesWithRetry(term, lat, lng, apiKey, pageToken);
+    if (!result.ok) return result;
+
+    const hasNewCandidate = result.places.some((p) => !existingPlaceIds.has(p.id));
+    if (hasNewCandidate || !result.nextPageToken) {
+      return { ok: true, term, places: result.places, exhausted: result.nextPageToken === null };
+    }
+
+    // Page entièrement connue mais il en reste une autre : on continue tout
+    // de suite dans ce même appel plutôt que de mémoriser le token pour plus
+    // tard (voir commentaire de fonction).
+    pageToken = result.nextPageToken;
+  }
+
+  // MAX_PAGES_PER_TERM atteint (60 résultats, plafond documenté de Google) :
+  // il n'y a rien de plus à trouver pour ce métier, quoi qu'il arrive.
+  return { ok: true, term, places: [], exhausted: true };
+}
+
+// Répartit `detailsBudget` candidats équitablement entre les métiers qui en
+// ont trouvé de nouveaux, plutôt que de vider le premier métier du tableau
+// avant de passer au suivant (voir le bug d'origine : "électricien" en tête
+// de TRADE_SEARCH_QUERIES asséchait tout le budget avant que "coiffeur",
+// dernier de la liste, ne soit jamais servi). Un candidat par métier au tour
+// 1 (dans l'ordre de rotation fourni), un 2e au tour 2 si le budget le
+// permet, etc.
+function allocateDetailsBudget(
+  perTermQueues: Map<string, string[]>,
+  rotatedTerms: string[],
+  detailsBudget: number
+): Array<{ id: string; category: string }> {
+  const selected: Array<{ id: string; category: string }> = [];
+  let round = 0;
+
+  while (selected.length < detailsBudget) {
+    let addedThisRound = false;
+    for (const term of rotatedTerms) {
+      if (selected.length >= detailsBudget) break;
+      const queue = perTermQueues.get(term);
+      if (!queue || round >= queue.length) continue;
+      selected.push({ id: queue[round], category: term });
+      addedThisRound = true;
+    }
+    if (!addedThisRound) break;
+    round++;
+  }
+
+  return selected;
+}
+
 async function refreshCommune(
   communeCode: string,
   lat: number,
@@ -264,7 +378,7 @@ async function refreshCommune(
     // Sans ce filtre, "Charger le reste" après un rechargement de quota
     // re-dépenserait le quota sur les artisans déjà connus au lieu d'atteindre
     // les nouveaux. Calculé AVANT la recherche : sert aussi à décider, par
-    // métier, si la page en cours est épuisée (voir ci-dessous).
+    // métier, quand une page de résultats n'apporte plus rien de neuf.
     const { data: existingRows } = await supabase
       .from("artisans")
       .select("place_id")
@@ -276,33 +390,11 @@ async function refreshCommune(
       .select("search_progress")
       .eq("commune_code", communeCode)
       .maybeSingle();
-    const progress = (progressRow?.search_progress as Record<string, string | null> | null) ?? {};
+    const progress = (progressRow?.search_progress as SearchProgress | null) ?? {};
+    const metierOffset = ((progress.metierOffset ?? 0) % TRADE_SEARCH_QUERIES.length + TRADE_SEARCH_QUERIES.length) % TRADE_SEARCH_QUERIES.length;
 
-    // Par métier : si la page en cours (celle du token stocké) ne contient
-    // plus AUCUN candidat nouveau, elle est épuisée — on avance d'une page
-    // pour ce métier avant de continuer, plutôt que de re-proposer la même
-    // page vide indéfiniment (cas "50 plombiers à Paris", au-delà des 20
-    // premiers déjà tous découverts).
-    const newProgress: Record<string, string | null> = { ...progress };
     const searchResults = await Promise.all(
-      TRADE_SEARCH_QUERIES.map(async (term) => {
-        const tokenUsed = progress[term] ?? null;
-        let result = await searchTradeCandidates(term, lat, lng, apiKey, tokenUsed);
-        if (!result.ok) return result;
-
-        const pageExhausted =
-          result.places.length > 0 && result.places.every((p) => existingPlaceIds.has(p.id));
-        if (pageExhausted && result.nextPageToken) {
-          const nextPage = await searchTradeCandidates(term, lat, lng, apiKey, result.nextPageToken);
-          if (nextPage.ok) {
-            newProgress[term] = result.nextPageToken;
-            result = nextPage;
-          }
-        } else {
-          newProgress[term] = tokenUsed;
-        }
-        return result;
-      })
+      TRADE_SEARCH_QUERIES.map((term) => searchTermCandidates(term, lat, lng, apiKey, existingPlaceIds))
     );
 
     // Une clé invalide/désactivée fait échouer TOUTES les recherches de la
@@ -310,7 +402,7 @@ async function refreshCommune(
     // isolé sur un seul métier (loggé ci-dessous) ne doit pas priver la commune
     // des métiers qui, eux, ont répondu.
     const failures = searchResults.filter(
-      (r): r is Extract<TradeSearchResult, { ok: false }> => !r.ok
+      (r): r is Extract<TermOutcome, { ok: false }> => !r.ok
     );
     if (failures.length === searchResults.length) {
       console.error("Toutes les recherches Text Search ont échoué:", failures[0].body);
@@ -322,29 +414,38 @@ async function refreshCommune(
 
     // Un même établissement peut ressortir sous plusieurs métiers recherchés
     // (ex. "maçon" et "carreleur") : on dédoublonne par place_id, en gardant le
-    // premier métier trouvé comme "category".
+    // premier métier trouvé (ordre de TRADE_SEARCH_QUERIES) comme "category".
     const seenPlaceIds = new Set<string>();
-    const candidates: Array<{ id: string; category: string }> = [];
+    const perTermNewCandidates = new Map<string, string[]>();
+    let totalNewCandidates = 0;
     for (const result of searchResults) {
       if (!result.ok) continue;
+      const queue: string[] = [];
       for (const place of result.places) {
-        if (seenPlaceIds.has(place.id)) continue;
+        if (seenPlaceIds.has(place.id) || existingPlaceIds.has(place.id)) continue;
         seenPlaceIds.add(place.id);
-        candidates.push({ id: place.id, category: result.term });
+        queue.push(place.id);
+      }
+      if (queue.length > 0) {
+        perTermNewCandidates.set(result.term, queue);
+        totalNewCandidates += queue.length;
       }
     }
 
-    const newCandidates = candidates.filter((candidate) => !existingPlaceIds.has(candidate.id));
-
-    // La recherche est désormais gratuite et illimitée : plus besoin de
-    // limiter le NOMBRE de candidats demandés à Google comme avant. Seul le
-    // détail (Place Details, payant) reste plafonné par le quota du jour.
+    // Répartition équitable, en tournant le point de départ à chaque appel
+    // (voir allocateDetailsBudget) — la recherche elle-même est gratuite et
+    // illimitée, seul le détail (Place Details, payant) reste plafonné par le
+    // quota du jour.
+    const rotatedTerms = [
+      ...TRADE_SEARCH_QUERIES.slice(metierOffset),
+      ...TRADE_SEARCH_QUERIES.slice(0, metierOffset),
+    ];
     const detailsBudget = Math.min(MAX_DETAILS_PER_SEARCH, remainingQuota);
+    const selected = allocateDetailsBudget(perTermNewCandidates, rotatedTerms, detailsBudget);
+
     let fetchedCount = 0;
 
-    for (const candidate of newCandidates) {
-      if (fetchedCount >= detailsBudget) break;
-
+    for (const candidate of selected) {
       // Journalisé même en cas d'échec juste après : la tentative compte déjà
       // dans le quota Google, qu'elle réussisse ou non.
       await supabase.from("google_places_quota_usage").insert({ user_id: userId });
@@ -386,19 +487,21 @@ async function refreshCommune(
       fetchedCount++;
     }
 
-    // Complète seulement si CHAQUE nouveau candidat a bien été traité ET que
-    // chaque métier a atteint sa dernière page (plus de nextPageToken) : sinon
-    // il reste potentiellement des artisans non découverts (budget du jour
-    // atteint, ou pagination pas encore épuisée pour un métier très demandé
+    // Complète seulement si CHAQUE nouveau candidat trouvé a bien été traité ET
+    // que chaque métier a confirmé qu'il n'y a rien de plus au-delà de ce qui a
+    // été vu (voir `exhausted` dans searchTermCandidates) : sinon il reste
+    // potentiellement des artisans non découverts (budget du jour atteint, ou
+    // pagination pas encore poussée jusqu'au bout pour un métier très demandé
     // genre "plombier" à Paris) — la commune ne doit pas être figée 60 jours.
-    const allTermsExhausted = searchResults.every((r) => r.ok && r.nextPageToken === null);
-    const isComplete = fetchedCount === newCandidates.length && allTermsExhausted;
+    const allTermsExhausted = searchResults.every((r) => r.ok && r.exhausted);
+    const isComplete = fetchedCount === selected.length && selected.length === totalNewCandidates && allTermsExhausted;
 
-    // Le progrès de pagination (search_progress) est toujours sauvegardé, que
-    // la commune soit complète ou non : c'est lui qui permet à "Charger le
-    // reste" de reprendre à la bonne page la prochaine fois plutôt que de
-    // re-demander indéfiniment le même top 20 par métier. searched_at, lui,
-    // n'est posé que si tout est vraiment fini (voir migration 0006).
+    // search_progress ne retient plus qu'un décalage de rotation (voir
+    // allocateDetailsBudget) : la position de pagination elle-même n'est
+    // jamais mémorisée entre deux appels (voir searchTermCandidates).
+    const newProgress: SearchProgress = {
+      metierOffset: (metierOffset + 1) % TRADE_SEARCH_QUERIES.length,
+    };
     await supabase.from("commune_search_cache").upsert({
       commune_code: communeCode,
       search_progress: newProgress,

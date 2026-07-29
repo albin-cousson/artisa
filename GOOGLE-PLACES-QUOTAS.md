@@ -43,16 +43,28 @@ Une commune n'a normalement pas plus de 20 **nouveaux** artisans détaillés par
 recherche — mais ce n'est plus une limite dure de Google comme avant :
 
 1. Chaque requête Text Search renvoie jusqu'à 20 résultats bruts (`pageSize:
-   20`) **par métier recherché**, avec pagination : Google plafonne chaque
-   requête Text Search à **3 pages, soit 60 résultats maximum par métier**
-   (limite propre à l'API, pas à Artisa). `search_progress`
-   (`commune_search_cache`, migration 0006) retient par métier le
-   `nextPageToken` de la page en cours pour cette commune : quand la page
-   déjà connue ne renvoie plus aucun candidat nouveau, `refreshCommune` avance
-   automatiquement à la page suivante avant de s'arrêter. Avec 14 métiers, la
-   découverte peut donc remonter jusqu'à 14 × 60 = 840 candidats bruts avant
-   dédoublonnage par `place_id` — un plafond largement théorique (peu de
-   communes ont 60 coiffeurs ET 60 plombiers etc.), mais qui borne le pire cas.
+   20`) **par métier recherché**, avec pagination live : Google plafonne
+   chaque requête Text Search à **3 pages, soit 60 résultats maximum par
+   métier** (`MAX_PAGES_PER_TERM`, limite propre à l'API, pas à Artisa).
+   `searchTermCandidates` (`src/app/api/places/route.ts`) pagine **dans la
+   même exécution** de `refreshCommune`, tant que la page reçue ne contient
+   QUE des candidats déjà en base et qu'il reste une page suivante — dès
+   qu'un candidat nouveau apparaît (ou que la pagination est épuisée), on
+   s'arrête. Avec 14 métiers, la découverte peut donc remonter jusqu'à
+   14 × 60 = 840 candidats bruts avant dédoublonnage par `place_id` — un
+   plafond largement théorique (peu de communes ont 60 coiffeurs ET 60
+   plombiers etc.), mais qui borne le pire cas.
+
+   Le `nextPageToken` n'est **jamais persisté au-delà de cet appel** (donc
+   jamais réutilisé le lendemain ou lors d'un futur clic sur « Charger le
+   reste ») : la doc Google précise que *"the list of places returned is not
+   guaranteed to be consistent for identical requests"*, et un token a de
+   toute façon une durée de vie courte — le réutiliser plusieurs jours après
+   l'aurait très probablement fait échouer silencieusement. Le seul mécanisme
+   de reprise entre deux appels HTTP séparés est le dédoublonnage par
+   `place_id` (`existingPlaceIds`) : chaque nouvel appel repart de la page 1
+   pour chaque métier, ce qui est sans coût puisque la découverte est
+   gratuite.
 2. C'est `MAX_DETAILS_PER_SEARCH = 20` (`src/app/api/places/route.ts`) qui
    plafonne volontairement le nombre de **Place Details** (l'étape payante)
    par *appel* à `refreshCommune` — un ouverture de commune ou un clic sur
@@ -65,6 +77,16 @@ recherche — mais ce n'est plus une limite dure de Google comme avant :
    (jusqu'à 20, ou moins si le quota du jour est presque épuisé) exige un
    nouveau clic sur « Charger le reste », qui peut avoir lieu plusieurs fois
    le même jour tant que le quota journalier n'est pas atteint.
+3. Ce budget de 20 est réparti **équitablement entre métiers** par
+   `allocateDetailsBudget`, plutôt que de vider "électricien" (premier de
+   `TRADE_SEARCH_QUERIES`) avant de passer au suivant : un candidat par
+   métier au tour 1, un 2e au tour 2 si le budget le permet, etc. Le métier
+   par lequel commence ce tour tourne d'un cran à chaque appel
+   (`search_progress.metierOffset`, `commune_search_cache`, migration 0006)
+   pour qu'un même petit groupe de métiers ne récupère pas systématiquement
+   les "restes" du tour 2 — sans cette rotation, "coiffeur" (dernier de la
+   liste) pouvait rester à zéro artisan détaillé pendant des dizaines
+   d'appels sur une grande ville riche en électriciens/plombiers.
 
 Ce plafond est donc maintenant un choix de coût pur, pas une contrainte
 technique de Google : le relever ne demande qu'à ajuster cette constante (et
@@ -111,20 +133,27 @@ aucun message d'erreur pour l'utilisateur (« rien ne s'affiche »).
 - Si le quota est déjà à 0, Google n'est même pas appelé : message d'erreur
   clair immédiat.
 - Une commune n'est marquée "entièrement explorée" (et donc mise en cache 60
-  jours) **que si chaque nouveau candidat détecté a bien été traité**
-  (`fetchedCount === newCandidates.length`) — sinon elle reste éligible à un
+  jours) **que si chaque nouveau candidat trouvé a bien été traité ET que
+  chaque métier a confirmé qu'il n'y a rien de plus au-delà de ce qui a été
+  vu** (`fetchedCount === selected.length && selected.length ===
+  totalNewCandidates && allTermsExhausted`) — sinon elle reste éligible à un
   nouveau rafraîchissement dès que le quota se régénère, avec un message
   "quota presque atteint" affiché à la place d'une liste silencieusement
   incomplète. Le panneau affiche alors un bouton « Charger le reste » (grisé
   « Quota atteint » tant que le quota du jour est à 0), qui relance simplement
   la même recherche.
 - Ce nouveau rafraîchissement **ignore les artisans déjà en cache** pour la
-  commune (Text Search reste quasi déterministe pour une même requête/lieu) —
-  sinon "Charger le reste" re-dépenserait le quota sur les artisans déjà
-  connus au lieu d'atteindre les nouveaux. Il n'y a plus de plafond Google dur
-  à 20 par commune (voir "Limite des 20 artisans par commune" plus haut) :
-  "Charger le reste" complète jusqu'à épuisement réel des nouveaux candidats,
-  au rythme du budget quota disponible chaque jour.
+  commune (dédoublonnage par `place_id`, `existingPlaceIds`) — sinon "Charger
+  le reste" re-dépenserait le quota sur les artisans déjà connus au lieu
+  d'atteindre les nouveaux. Ce dédoublonnage est d'autant plus nécessaire que
+  Google **ne garantit pas** la stabilité des résultats d'une requête à
+  l'autre (*"the list of places returned is not guaranteed to be consistent
+  for identical requests"*, doc officielle) : on ne peut pas compter sur le
+  fait qu'un même appel renvoie toujours le même ordre/contenu, seul le
+  `place_id` déjà connu fait foi. Il n'y a plus de plafond Google dur à 20 par
+  commune (voir "Limite des 20 artisans par commune" plus haut) : "Charger le
+  reste" complète jusqu'à épuisement réel des nouveaux candidats, au rythme du
+  budget quota disponible chaque jour.
 - **Fenêtre de renouvellement** : les quotas journaliers Google Cloud (dont
   `GetPlaceRequest`) se réinitialisent à **minuit heure Pacifique**
   (`America/Los_Angeles`, PST/PDT selon la saison — géré via `Intl` dans
